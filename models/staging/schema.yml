@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: olist_data
+    schema: main
+    tables:
+      - name: olist_data__olist_orders
+        columns:
+          - name: order_id
+            description: Unique order identifier
+      - name: olist_data__olist_customers
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+      - name: olist_data__olist_order_items
+        columns:
+          - name: order_id
+            description: Order identifier
+      - name: olist_data__olist_order_payments
+        columns:
+          - name: order_id
+            description: Order identifier
