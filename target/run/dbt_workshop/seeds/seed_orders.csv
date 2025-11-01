@@ -1,0 +1,12 @@
+
+    
+    
+    truncate table "main"."seed_orders";
+    -- dbt seed --
+    
+            insert into main.seed_orders ("order_id", "customer_id", "amount") values
+            (?,?,?),(?,?,?),(?,?,?),(?,?,?),(?,?,?),(?,?,?)
+        
+
+;
+  

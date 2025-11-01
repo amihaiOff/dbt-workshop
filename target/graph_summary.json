@@ -1,0 +1,1 @@
+{"_invocation_id": "c67b94b2-61d2-4a36-a1f7-ce2ca8c50e33", "linked": {"0": {"name": "model.dbt_workshop.staging", "type": "model"}, "1": {"name": "seed.dbt_workshop.seed_customers", "type": "seed", "succ": [0]}, "2": {"name": "seed.dbt_workshop.seed_orders", "type": "seed", "succ": [0]}}}

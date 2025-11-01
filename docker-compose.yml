@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  dbt-workshop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dbt-workshop
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/home/coder/project
+    command: /usr/local/bin/start.sh
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - DBT_PROFILES_DIR=/home/coder/project
+      - PASSWORD=workshop
+    stdin_open: true
+    tty: true
+
