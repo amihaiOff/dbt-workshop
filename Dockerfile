@@ -32,7 +32,8 @@ RUN echo 'export PATH="/opt/venv/bin:$PATH"' > /etc/profile.d/venv-path.sh \
 RUN code-server --install-extension innoverio.vscode-dbt-power-user --force || true \
     && code-server --install-extension ms-python.python --force || true \
     && code-server --install-extension ms-toolsai.jupyter --force || true \
-    && code-server --install-extension eamodio.gitlens --force || true
+    && code-server --install-extension eamodio.gitlens --force || true \
+    && code-server --install-extension yy0931.vscode-sqlite3-editor --force || true
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
