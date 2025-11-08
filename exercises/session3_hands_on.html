@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session 3: Testing & Production - Hands-on Exercises</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #9b59b6;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #9b59b6;
+            padding-left: 10px;
+        }
+        
+        h3 {
+            color: #7f8c8d;
+            margin-top: 20px;
+        }
+        
+        .info-box {
+            background-color: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .challenge-box {
+            background-color: #fff;
+            border: 2px solid #9b59b6;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .optional-challenge {
+            background-color: #ffeaa7;
+            border: 2px dashed #fdcb6e;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+        
+        .feast-box {
+            background-color: #f4e7ff;
+            border: 2px solid #9b59b6;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        .solution {
+            display: none;
+            background-color: #e8f8f5;
+            border: 2px solid #27ae60;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+        
+        .solution-button {
+            background-color: #9b59b6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .solution-button:hover {
+            background-color: #8e44ad;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background-color: white;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #9b59b6;
+            color: white;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        .highlight {
+            background-color: #ffeb3b;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .recap-box {
+            background-color: #f0f3f4;
+            border: 2px solid #34495e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        .instructor-note {
+            background-color: #ffe5e5;
+            border: 2px dashed #ff6b6b;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+    </style>
+    <script>
+        function toggleSolution(id) {
+            var solution = document.getElementById(id);
+            var button = event.target;
+            if (solution.style.display === 'none' || solution.style.display === '') {
+                solution.style.display = 'block';
+                button.textContent = 'Hide Solution';
+            } else {
+                solution.style.display = 'none';
+                button.textContent = 'Show Solution';
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>🚀 Session 3: Testing & Production - Hands-on Exercises</h1>
+    
+    <div class="info-box">
+        <h3>⏱️ Duration: 45-60 minutes</h3>
+        <p><strong>Prerequisites:</strong> Completed Session 1 & 2 models</p>
+        <p><strong>Goal:</strong> Add production-grade testing, monitoring, and enrichment</p>
+        <p><strong>Note:</strong> Shorter session to leave time for Feast production discussion</p>
+    </div>
+
+    <div class="recap-box">
+        <h2>📋 Quick Recap from Sessions 1-2</h2>
+        <p><strong>What We've Built:</strong></p>
+        <ul>
+            <li>✅ Staging tables with proper types</li>
+            <li>✅ Customer landing and daily features</li>
+            <li>✅ Incremental models with late data handling</li>
+            <li>✅ Snapshots for slowly changing dimensions</li>
+        </ul>
+        <p><strong>Today's Focus:</strong> Make it bulletproof with comprehensive testing and production features!</p>
+    </div>
+
+    <h2>🧪 Understanding dbt Tests</h2>
+    
+    <div class="info-box">
+        <h3>Testing Progression: Simple to Advanced</h3>
+        
+        <h4>1. Schema Tests (Start Here)</h4>
+        <p>Pre-built tests applied via YAML configuration - the foundation of data quality:</p>
+        <ul>
+            <li><code>unique</code> - Ensures column has no duplicates</li>
+            <li><code>not_null</code> - Ensures column has no nulls</li>
+            <li><code>accepted_values</code> - Validates against a list</li>
+            <li><code>relationships</code> - Checks foreign key integrity</li>
+        </ul>
+        
+        <h4>2. Unit Tests (New in dbt 1.8+)</h4>
+        <p>Test model logic with mock inputs and expected outputs - like unit tests in programming.</p>
+        
+        <h4>3. Custom Tests (Advanced)</h4>
+        <p>Custom SQL queries in the <code>tests/</code> folder that return rows when they fail - for complex business logic validation.</p>
+        
+        <h4>Running Tests:</h4>
+        <pre>
+dbt test                           # Run all tests
+dbt test --select model_name       # Test specific model
+dbt test --select tag:critical     # Run tagged tests
+dbt test --store-failures          # Save failures for debugging</pre>
+    </div>
+
+    <!-- Challenge 1A: Schema Tests -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 1A: Schema Tests Foundation</h2>
+        <p>Start with schema tests - the foundation of data quality validation.</p>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create comprehensive schema tests for <code>stg_orders</code> and <code>stg_customers</code></li>
+            <li>Test primary keys, foreign keys, and business rules</li>
+            <li>Add data range validations</li>
+            <li>Include severity levels (warn vs error)</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution1a')">Show Solution</button>
+        <div id="solution1a" class="solution">
+            <h4>models/staging/schema.yml</h4>
+            <pre>
+version: 2
+
+models:
+  - name: stg_orders
+    description: "Cleaned orders from Olist dataset"
+    config:
+      tags: ["staging", "critical"]
+    
+    columns:
+      - name: order_id
+        description: "Unique order identifier"
+        tests:
+          - unique
+          - not_null
+      
+      - name: customer_id
+        description: "Customer who placed the order"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+              config:
+                severity: error  # Critical business rule
+      
+      - name: order_status
+        description: "Current order status"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['delivered', 'shipped', 'processing', 'canceled', 'invoiced', 'approved', 'created']
+              config:
+                severity: warn  # New statuses might appear
+      
+      - name: order_purchase_timestamp
+        description: "When order was placed"
+        tests:
+          - not_null
+          # SQLite compatible date range tests
+          - dbt_utils.expression_is_true:
+              expression: "date(order_purchase_timestamp) >= '2016-01-01'"
+              config:
+                severity: error
+          - dbt_utils.expression_is_true:
+              expression: "date(order_purchase_timestamp) <= date('now')"
+              config:
+                severity: error
+      
+      - name: order_date
+        description: "Date of order (for partitioning)"
+        tests:
+          - not_null
+
+  - name: stg_customers
+    description: "Clean customer data"
+    config:
+      tags: ["staging", "reference"]
+    
+    columns:
+      - name: customer_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      
+      - name: customer_city
+        description: "Customer city"
+        tests:
+          - not_null
+      
+      - name: customer_state
+        description: "Customer state (should be valid Brazilian states)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SP', 'RJ', 'MG', 'RS', 'PR', 'SC', 'BA', 'GO', 'ES', 'PE', 'CE', 'PA', 'DF', 'MT', 'MS', 'PB', 'RN', 'AL', 'PI', 'SE', 'RO', 'AC', 'AM', 'RR', 'AP', 'TO', 'MA']
+              config:
+                severity: warn  # New states are rare but possible
+
+  - name: stg_order_payments
+    description: "Payment information"
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+      
+      - name: payment_value
+        description: "Payment amount"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                severity: error
+                error_if: "> 10"  # Fail if more than 10 negative values</pre>
+            
+            <p><strong>Run schema tests:</strong></p>
+            <pre>
+# Test specific models
+dbt test --select stg_orders
+
+# Test with different severities
+dbt test --select stg_customers --fail-fast
+
+# Store failures for inspection
+dbt test --select staging --store-failures
+
+# Check what failed
+# SELECT * FROM main.dbt_test__audit_[test_name];</pre>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: great-expectations Integration</h3>
+            <p>Add advanced data quality tests using the dbt-expectations package:</p>
+            
+            <div class="info-box">
+                <h4>📦 dbt-expectations Package</h4>
+                <p>Provides 50+ additional tests inspired by Great Expectations framework:</p>
+                <ul>
+                    <li><strong>Statistical tests:</strong> expect_column_mean_to_be_between</li>
+                    <li><strong>Distribution tests:</strong> expect_column_values_to_be_in_set</li>
+                    <li><strong>Relationship tests:</strong> expect_table_row_count_to_equal_other_table</li>
+                    <li><strong>Pattern tests:</strong> expect_column_values_to_match_regex</li>
+                </ul>
+                <p><strong>Installation:</strong> Add to packages.yml and run <code>dbt deps</code></p>
+            </div>
+            
+            <button class="solution-button" onclick="toggleSolution('optional1a')">Show Solution</button>
+            <div id="optional1a" class="solution">
+                <h4>packages.yml</h4>
+                <pre>
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.1.1
+  - package: calogica/dbt_expectations
+    version: 0.10.1</pre>
+                
+                <h4>Extended schema tests with dbt-expectations:</h4>
+                <pre>
+# Add to models/staging/schema.yml under stg_orders columns
+      - name: order_purchase_timestamp
+        tests:
+          # Statistical validation
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 1000000  # Reasonable timestamp range
+              
+      - name: customer_id
+        tests:
+          # Format validation
+          - dbt_expectations.expect_column_values_to_match_regex:
+              regex: "^[a-fA-F0-9]{32}$"  # UUID format
+              
+# Table-level tests
+  - name: stg_orders
+    tests:
+      # Row count validation
+      - dbt_expectations.expect_table_row_count_to_be_between:
+          min_value: 95000
+          max_value: 105000
+          
+      # Completeness validation  
+      - dbt_expectations.expect_table_column_count_to_equal:
+          value: 9</pre>
+                
+                <p><strong>Run extended tests:</strong></p>
+                <pre>
+# Install packages first
+dbt deps
+
+# Run all tests including expectations
+dbt test --select stg_orders</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Challenge 1B: Unit Tests -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 1B: Unit Tests for Model Logic</h2>
+        <p>Create unit tests to validate your model transformation logic with mock data.</p>
+        
+        <div class="info-box">
+            <h3>🔬 Unit Tests Explained</h3>
+            <p>Unit tests work like unit tests in programming:</p>
+            <ul>
+                <li><strong>Given:</strong> Mock input data (what goes into your model)</li>
+                <li><strong>When:</strong> Your model runs (automatic)</li>
+                <li><strong>Then:</strong> Expected output data (what should come out)</li>
+            </ul>
+            <p>Perfect for testing business logic, edge cases, and transformations.</p>
+        </div>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create a unit test for <code>stg_orders</code> date casting and filtering</li>
+            <li>Test that unavailable orders are properly filtered out</li>
+            <li>Validate that null timestamps are handled correctly</li>
+            <li>Test the order_date derivation logic</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution1b')">Show Solution</button>
+        <div id="solution1b" class="solution">
+            <h4>tests/unit/test_stg_orders.yml</h4>
+            <pre>
+# Unit test for stg_orders transformation logic
+version: 2
+
+unit_tests:
+  - name: test_stg_orders_filtering_and_dates
+    description: "Test that orders are properly filtered and dates correctly derived"
+    model: stg_orders
+    
+    given:
+      - input: source('olist_data', 'olist_orders_dataset')
+        rows:
+          # Valid order - should appear in output
+          - {order_id: "valid_001", customer_id: "customer_001", order_status: "delivered", 
+             order_purchase_timestamp: "2018-01-15 10:30:00", order_approved_at: "2018-01-15 11:00:00"}
+             
+          # Unavailable order - should be filtered out
+          - {order_id: "invalid_001", customer_id: "customer_002", order_status: "unavailable", 
+             order_purchase_timestamp: "2018-01-16 11:00:00", order_approved_at: "2018-01-16 11:30:00"}
+             
+          # Null timestamp - should be filtered out
+          - {order_id: "invalid_002", customer_id: "customer_003", order_status: "shipped", 
+             order_purchase_timestamp: null, order_approved_at: "2018-01-17 12:00:00"}
+             
+          # Another valid order - should appear
+          - {order_id: "valid_002", customer_id: "customer_004", order_status: "processing", 
+             order_purchase_timestamp: "2018-01-20 14:15:30", order_approved_at: null}
+    
+    expect:
+      rows:
+        # Only valid orders should appear with proper date casting
+        - {order_id: "valid_001", customer_id: "customer_001", order_status: "delivered",
+           order_purchase_timestamp: "2018-01-15 10:30:00", order_date: "2018-01-15"}
+        - {order_id: "valid_002", customer_id: "customer_004", order_status: "processing",
+           order_purchase_timestamp: "2018-01-20 14:15:30", order_date: "2018-01-20"}
+
+  - name: test_stg_orders_edge_cases
+    description: "Test edge cases in order processing"
+    model: stg_orders
+    
+    given:
+      - input: source('olist_data', 'olist_orders_dataset')
+        rows:
+          # Edge case: very old order
+          - {order_id: "old_001", customer_id: "customer_old", order_status: "delivered", 
+             order_purchase_timestamp: "2015-12-31 23:59:59", order_approved_at: "2016-01-01 00:30:00"}
+             
+          # Edge case: future date (should still be included if not null)
+          - {order_id: "future_001", customer_id: "customer_future", order_status: "created", 
+             order_purchase_timestamp: "2025-01-01 10:00:00", order_approved_at: null}
+    
+    expect:
+      rows:
+        - {order_id: "old_001", customer_id: "customer_old", order_status: "delivered",
+           order_purchase_timestamp: "2015-12-31 23:59:59", order_date: "2015-12-31"}
+        - {order_id: "future_001", customer_id: "customer_future", order_status: "created",
+           order_purchase_timestamp: "2025-01-01 10:00:00", order_date: "2025-01-01"}</pre>
+           
+            <p><strong>Run unit tests:</strong></p>
+            <pre>
+# Run specific unit test
+dbt test --select test_type:unit
+
+# Run unit test for specific model
+dbt test --select stg_orders --select test_type:unit
+
+# Get detailed output
+dbt test --select test_stg_orders_filtering_and_dates --verbose</pre>
+            
+            <div class="warning-box">
+                <strong>Unit Test Tips:</strong>
+                <ul>
+                    <li>Keep test data small and focused on specific logic</li>
+                    <li>Test edge cases (nulls, empty strings, extreme values)</li>
+                    <li>One test per logical concept</li>
+                    <li>Use descriptive test names</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: Complex Unit Test</h3>
+            <p>Create a unit test for your <code>int_customer_daily_features</code> model that validates:</p>
+            <ul>
+                <li>Rolling window calculations (7d, 14d, 30d)</li>
+                <li>Cumulative totals</li>
+                <li>Days since landing calculation</li>
+                <li>Handling of customers with no orders on specific dates</li>
+            </ul>
+            
+            <button class="solution-button" onclick="toggleSolution('optional1b')">Show Solution</button>
+            <div id="optional1b" class="solution">
+                <h4>tests/unit/test_customer_features.yml</h4>
+                <pre>
+unit_tests:
+  - name: test_customer_rolling_windows
+    description: "Test rolling window calculations are correct"
+    model: int_customer_daily_features
+    
+    given:
+      - input: ref('int_customer_landing')
+        rows:
+          - {customer_id: "test_customer", landing_date: "2018-01-01"}
+          
+      - input: ref('stg_orders') 
+        rows:
+          # 3 orders over 10 days for testing rolling windows
+          - {customer_id: "test_customer", order_id: "order_1", order_purchase_timestamp: "2018-01-05 10:00:00", order_status: "delivered"}
+          - {customer_id: "test_customer", order_id: "order_2", order_purchase_timestamp: "2018-01-08 11:00:00", order_status: "delivered"}
+          - {customer_id: "test_customer", order_id: "order_3", order_purchase_timestamp: "2018-01-12 12:00:00", order_status: "delivered"}
+          
+      - input: ref('stg_order_payments')
+        rows:
+          - {order_id: "order_1", payment_sequential: 1, payment_value: 100.00}
+          - {order_id: "order_2", payment_sequential: 1, payment_value: 200.00}
+          - {order_id: "order_3", payment_sequential: 1, payment_value: 150.00}
+    
+    expect:
+      rows:
+        # Test specific date with known rolling window values
+        - {customer_id: "test_customer", feature_date: "2018-01-12", 
+           payment_7d: 350.00,   # orders on 2018-01-08 (200) + 2018-01-12 (150)
+           payment_14d: 450.00,  # all 3 orders (100 + 200 + 150)
+           orders_7d: 2,         # 2 orders in last 7 days
+           days_since_landing: 11} # 2018-01-12 - 2018-01-01</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Challenge 1C: Custom Tests -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 1C: Custom Tests for Business Logic</h2>
+        <p>Create custom SQL tests to validate complex business rules and detect data quality issues.</p>
+        
+        <div class="info-box">
+            <h3>🔍 Custom Tests Explained</h3>
+            <p><strong>How Custom Tests Work:</strong></p>
+            <ul>
+                <li><strong>Success:</strong> Query returns 0 rows (no problems found)</li>
+                <li><strong>Failure:</strong> Query returns 1+ rows (each row represents an error)</li>
+                <li><strong>Best Practice:</strong> Write queries that find problems, not successes</li>
+            </ul>
+            <p><strong>Perfect for:</strong> Complex business rules, cross-table validations, ML-specific checks</p>
+        </div>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create a test to detect negative order totals</li>
+            <li>Add a test for feature drift detection</li>
+            <li>Test temporal consistency (no date gaps)</li>
+            <li>Validate customer lifecycle logic</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution1c')">Show Solution</button>
+        <div id="solution1c" class="solution">
+            <h4>tests/assert_no_negative_orders.sql</h4>
+            <pre>
+-- This test fails if any orders have negative total value
+-- Custom tests return ERRORS (rows), not successes (empty results)
+
+WITH order_totals AS (
+    SELECT 
+        o.order_id,
+        o.customer_id,
+        date(o.order_purchase_timestamp) as order_date,
+        COALESCE(SUM(p.payment_value), 0) as total_payment
+    FROM {{ ref('stg_orders') }} o
+    LEFT JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1, 2, 3
+)
+
+-- Return rows only when there's a problem
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    total_payment,
+    'Order has negative total payment: ' || total_payment as error_message
+FROM order_totals
+WHERE total_payment < 0</pre>
+
+            <h4>tests/assert_feature_consistency.sql</h4>
+            <pre>
+-- Test that daily features don't have impossible values
+-- Features should be consistent with underlying order data
+
+WITH feature_validation AS (
+    SELECT 
+        f.customer_id,
+        f.feature_date,
+        f.orders_30d,
+        f.payment_30d,
+        
+        -- Count actual orders in last 30 days from source
+        COUNT(DISTINCT o.order_id) as actual_orders_30d,
+        COALESCE(SUM(p.payment_value), 0) as actual_payment_30d
+        
+    FROM {{ ref('int_customer_daily_features') }} f
+    LEFT JOIN {{ ref('stg_orders') }} o
+        ON f.customer_id = o.customer_id
+        AND date(o.order_purchase_timestamp) BETWEEN 
+            date(f.feature_date, '-30 days') AND f.feature_date
+        AND o.order_status NOT IN ('canceled', 'unavailable')
+    LEFT JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE f.feature_date >= date('now', '-7 days')  -- Only check recent features
+    GROUP BY 1, 2, 3, 4
+)
+
+-- Return mismatches (errors)
+SELECT 
+    customer_id,
+    feature_date,
+    orders_30d as feature_orders,
+    actual_orders_30d,
+    ABS(orders_30d - actual_orders_30d) as order_difference,
+    'Feature vs actual order count mismatch' as error_type
+FROM feature_validation
+WHERE ABS(orders_30d - actual_orders_30d) > 2  -- Allow small tolerance</pre>
+
+            <h4>tests/assert_no_temporal_gaps.sql</h4>
+            <pre>
+-- Ensure no missing dates in customer feature history
+-- Critical for ML model training consistency
+
+WITH customer_date_gaps AS (
+    SELECT 
+        customer_id,
+        feature_date,
+        LAG(feature_date) OVER (
+            PARTITION BY customer_id 
+            ORDER BY feature_date
+        ) as prev_date,
+        -- Calculate days between consecutive dates
+        julianday(feature_date) - julianday(
+            LAG(feature_date) OVER (
+                PARTITION BY customer_id 
+                ORDER BY feature_date
+            )
+        ) as days_gap
+    FROM {{ ref('int_customer_daily_features') }}
+    WHERE feature_date >= date('now', '-30 days')  -- Check recent data
+)
+
+-- Return date gaps > 1 day (errors)
+SELECT 
+    customer_id,
+    feature_date,
+    prev_date,
+    days_gap,
+    'Customer has ' || days_gap || ' day gap in feature history' as error_message
+FROM customer_date_gaps
+WHERE days_gap > 1.1  -- Allow small floating point errors</pre>
+
+            <h4>tests/assert_customer_lifecycle_logic.sql</h4>
+            <pre>
+-- Validate that customer lifecycle logic is consistent
+-- No customer should have features before their landing date
+
+SELECT 
+    f.customer_id,
+    f.feature_date,
+    l.landing_date,
+    date(f.feature_date) - date(l.landing_date) as days_difference,
+    'Customer has features before landing date' as error_message
+FROM {{ ref('int_customer_daily_features') }} f
+INNER JOIN {{ ref('int_customer_landing') }} l
+    ON f.customer_id = l.customer_id
+WHERE date(f.feature_date) < date(l.landing_date)</pre>
+            
+            <p><strong>Run custom tests:</strong></p>
+            <pre>
+# Run all custom tests
+dbt test --select test_type:data
+
+# Run specific test
+dbt test --select assert_no_negative_orders
+
+# Store failures for investigation
+dbt test --select assert_feature_consistency --store-failures
+
+# Investigate failures
+# SELECT * FROM main.dbt_test__audit_assert_feature_consistency;</pre>
+            
+            <div class="warning-box">
+                <strong>Custom Test Guidelines:</strong>
+                <ul>
+                    <li><strong>Write error-detecting queries</strong> (return problems, not successes)</li>
+                    <li><strong>Include helpful error messages</strong> in your SELECT</li>
+                    <li><strong>Use appropriate tolerances</strong> for floating point comparisons</li>
+                    <li><strong>Focus on business-critical logic</strong> that schema tests can't catch</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Challenge 2: Freshness Testing -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 2: Data Freshness Monitoring</h2>
+        <p>Set up freshness tests to ensure your source data is up-to-date for production ML pipelines.</p>
+        
+        <div class="info-box">
+            <h3>📊 Which Tables to Test & Thresholds</h3>
+            <p><strong>Critical Tables (Strict Thresholds):</strong></p>
+            <ul>
+                <li><strong>olist_orders_dataset:</strong> Warn: 2 hours, Error: 4 hours (business critical)</li>
+                <li><strong>olist_order_payments_dataset:</strong> Warn: 4 hours, Error: 8 hours (affects revenue)</li>
+            </ul>
+            <p><strong>Reference Tables (Relaxed Thresholds):</strong></p>
+            <ul>
+                <li><strong>olist_customers_dataset:</strong> Warn: 24 hours, Error: 48 hours (changes infrequently)</li>
+                <li><strong>olist_order_items_dataset:</strong> Warn: 6 hours, Error: 12 hours (moderately important)</li>
+            </ul>
+        </div>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Configure freshness checks for the 4 main source tables</li>
+            <li>Set appropriate warning and error thresholds as specified above</li>
+            <li>Run initial freshness test (should show errors - data is from 2018!)</li>
+            <li>Insert new test data and verify freshness tests pass</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution2')">Show Solution</button>
+        <div id="solution2" class="solution">
+            <h4>models/staging/sources.yml</h4>
+            <pre>
+version: 2
+
+sources:
+  - name: olist_data
+    description: "Raw Olist e-commerce data"
+    
+    tables:
+      - name: olist_orders_dataset
+        description: "Raw orders data - CRITICAL for ML features"
+        loaded_at_field: order_purchase_timestamp
+        
+        # Strict thresholds for business-critical data
+        freshness:
+          warn_after: {count: 2, period: hour}
+          error_after: {count: 4, period: hour}
+        
+        columns:
+          - name: order_id
+            description: "Primary key"
+          - name: order_purchase_timestamp
+            description: "Used for freshness monitoring"
+      
+      - name: olist_order_payments_dataset
+        description: "Payment data - affects revenue calculations"
+        # No natural timestamp field, so we'll use a surrogate
+        loaded_at_field: "datetime('now')"  # SQLite current time
+        
+        freshness:
+          warn_after: {count: 4, period: hour}
+          error_after: {count: 8, period: hour}
+      
+      - name: olist_customers_dataset
+        description: "Customer reference data - changes infrequently"
+        loaded_at_field: "datetime('now')"  # No natural timestamp
+        
+        # Relaxed thresholds for reference data
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+        
+      - name: olist_order_items_dataset
+        description: "Order line items - moderately important"
+        loaded_at_field: shipping_limit_date
+        
+        freshness:
+          warn_after: {count: 6, period: hour}
+          error_after: {count: 12, period: hour}</pre>
+            
+            <h4>Step-by-Step Testing Process:</h4>
+            <pre>
+# Step 1: Run initial freshness check (should show ERRORS)
+dbt source freshness
+
+# Expected output:
+# ❌ ERROR: olist_orders_dataset is stale (last data from 2018)
+# ❌ ERROR: olist_order_items_dataset is stale (last data from 2018)
+# ❌ ERROR: olist_order_payments_dataset is stale 
+# ❌ ERROR: olist_customers_dataset is stale</pre>
+            
+            <div class="instructor-note">
+                <h4>🎓 Instructor Demo: Insert Fresh Data</h4>
+                <p><strong>Run this script to simulate fresh data arrival:</strong></p>
+                <pre>
+-- Insert recent orders to make freshness tests pass
+INSERT INTO olist_data.olist_orders_dataset (
+    order_id, customer_id, order_status, 
+    order_purchase_timestamp, order_approved_at
+) VALUES 
+    ('FRESH_001', 'TEST_CUSTOMER_001', 'processing', 
+     datetime('now', '-30 minutes'), datetime('now', '-25 minutes')),
+    ('FRESH_002', 'TEST_CUSTOMER_002', 'approved', 
+     datetime('now', '-45 minutes'), datetime('now', '-40 minutes')),
+    ('FRESH_003', 'TEST_CUSTOMER_003', 'shipped', 
+     datetime('now', '-1 hours'), datetime('now', '-55 minutes'));
+
+-- Insert corresponding order items
+INSERT INTO olist_data.olist_order_items_dataset (
+    order_id, order_item_id, product_id, seller_id,
+    shipping_limit_date, price, freight_value
+) VALUES 
+    ('FRESH_001', 1, 'PROD_001', 'SELLER_001', 
+     datetime('now', '+2 days'), 99.90, 15.50),
+    ('FRESH_002', 1, 'PROD_002', 'SELLER_002', 
+     datetime('now', '+3 days'), 45.00, 8.75);
+
+-- Verify the data was inserted
+SELECT order_id, order_status, order_purchase_timestamp 
+FROM olist_data.olist_orders_dataset 
+WHERE order_id LIKE 'FRESH_%'
+ORDER BY order_purchase_timestamp DESC;</pre>
+            </div>
+            
+            <h4>Step 2: Re-run freshness tests (should PASS now):</h4>
+            <pre>
+# Run freshness check again
+dbt source freshness
+
+# Expected output now:
+# ✅ PASS: olist_orders_dataset (30 minutes old, threshold: 2 hours)
+# ✅ PASS: olist_order_items_dataset (30 minutes old, threshold: 6 hours)
+# ⚠️  WARN/ERROR: Others still stale (depending on thresholds)</pre>
+            
+            <h4>Step 3: Validate specific table freshness:</h4>
+            <pre>
+# Check the exact timestamps that freshness is using
+SELECT 
+    'olist_orders_dataset' as table_name,
+    MAX(order_purchase_timestamp) as latest_timestamp,
+    julianday('now') - julianday(MAX(order_purchase_timestamp)) as days_old,
+    (julianday('now') - julianday(MAX(order_purchase_timestamp))) * 24 as hours_old
+FROM olist_data.olist_orders_dataset
+
+UNION ALL
+
+SELECT 
+    'olist_order_items_dataset' as table_name,
+    MAX(shipping_limit_date) as latest_timestamp,
+    julianday('now') - julianday(MAX(shipping_limit_date)) as days_old,
+    (julianday('now') - julianday(MAX(shipping_limit_date))) * 24 as hours_old
+FROM olist_data.olist_order_items_dataset;</pre>
+            
+            <h4>Step 4: Clean up test data:</h4>
+            <pre>
+-- Remove test data after demonstration
+DELETE FROM olist_data.olist_orders_dataset 
+WHERE order_id LIKE 'FRESH_%';
+
+DELETE FROM olist_data.olist_order_items_dataset 
+WHERE order_id LIKE 'FRESH_%';
+
+-- Verify cleanup
+SELECT COUNT(*) as remaining_test_records
+FROM olist_data.olist_orders_dataset 
+WHERE order_id LIKE 'FRESH_%';</pre>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: Automated Freshness Monitoring</h3>
+            <p>Set up automated freshness monitoring with alerting:</p>
+            <ul>
+                <li>Create a script to check freshness and send alerts</li>
+                <li>Log freshness results to a monitoring table</li>
+                <li>Set up different alert channels for warnings vs errors</li>
+                <li>Create a dashboard view of data freshness over time</li>
+            </ul>
+            
+            <button class="solution-button" onclick="toggleSolution('optional2')">Show Solution</button>
+            <div id="optional2" class="solution">
+                <h4>Create monitoring infrastructure:</h4>
+                <pre>
+-- Create freshness monitoring table
+CREATE TABLE IF NOT EXISTS dbt_monitoring.freshness_log (
+    check_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_name TEXT,
+    table_name TEXT,
+    checked_at TIMESTAMP,
+    latest_data_timestamp TIMESTAMP,
+    hours_stale REAL,
+    status TEXT, -- 'PASS', 'WARN', 'ERROR'
+    threshold_warn_hours INTEGER,
+    threshold_error_hours INTEGER
+);
+
+-- Create monitoring view
+CREATE VIEW IF NOT EXISTS dbt_monitoring.freshness_dashboard AS
+SELECT 
+    source_name || '.' || table_name as full_table_name,
+    latest_data_timestamp,
+    hours_stale,
+    status,
+    CASE 
+        WHEN status = 'ERROR' THEN '🔴'
+        WHEN status = 'WARN' THEN '🟡'
+        ELSE '🟢'
+    END as status_icon,
+    checked_at
+FROM dbt_monitoring.freshness_log
+WHERE check_id IN (
+    SELECT MAX(check_id)
+    FROM dbt_monitoring.freshness_log
+    GROUP BY source_name, table_name
+)
+ORDER BY hours_stale DESC;</pre>
+                
+                <h4>Python script for automated monitoring:</h4>
+                <pre>
+import subprocess
+import json
+import sqlite3
+from datetime import datetime
+
+def check_and_alert():
+    # Run dbt source freshness with JSON output
+    result = subprocess.run(
+        ['dbt', 'source', 'freshness', '--output', 'json'],
+        capture_output=True, text=True
+    )
+    
+    # Parse results
+    freshness_data = json.loads(result.stdout)
+    
+    # Connect to database
+    conn = sqlite3.connect('data.db')
+    cursor = conn.cursor()
+    
+    alerts = []
+    
+    for source in freshness_data.get('results', []):
+        status = source.get('status', 'unknown')
+        hours_stale = source.get('max_loaded_at_time_ago_in_s', 0) / 3600
+        
+        # Log to monitoring table
+        cursor.execute("""
+            INSERT INTO dbt_monitoring.freshness_log 
+            (source_name, table_name, checked_at, hours_stale, status)
+            VALUES (?, ?, ?, ?, ?)
+        """, (source['unique_id'], source['table'], datetime.now(), hours_stale, status))
+        
+        # Generate alerts
+        if status == 'ERROR':
+            alerts.append(f"🔴 CRITICAL: {source['table']} is {hours_stale:.1f} hours stale")
+        elif status == 'WARN':
+            alerts.append(f"🟡 WARNING: {source['table']} is {hours_stale:.1f} hours stale")
+    
+    conn.commit()
+    conn.close()
+    
+    # Send alerts (implement your preferred method)
+    if alerts:
+        alert_message = "\n".join(alerts)
+        print(f"FRESHNESS ALERT:\n{alert_message}")
+        # Could integrate with Slack, email, PagerDuty, etc.
+
+if __name__ == "__main__":
+    check_and_alert()</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Challenge 3: Production Hooks -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 3: Production Hooks for Automation</h2>
+        <p>Implement pre-hooks for data cleaning and post-hooks for quality tracking to automate production operations.</p>
+        
+        <div class="info-box">
+            <h3>🔧 Hooks Explained</h3>
+            <p><strong>Pre-hooks:</strong> Run BEFORE your model SQL executes</p>
+            <ul>
+                <li><strong>Data Cleaning:</strong> Remove old/invalid data before processing</li>
+                <li><strong>Setup:</strong> Create temporary tables, set session variables</li>
+                <li><strong>Logging:</strong> Record when model execution starts</li>
+            </ul>
+            
+            <p><strong>Post-hooks:</strong> Run AFTER your model SQL executes</p>
+            <ul>
+                <li><strong>Quality Tracking:</strong> Record row counts, statistics, distributions</li>
+                <li><strong>Performance:</strong> Create indexes, update table statistics</li>
+                <li><strong>Notifications:</strong> Alert when processing completes</li>
+            </ul>
+        </div>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li><strong>Pre-hook:</strong> Clean old data (>1 year) before rebuilding features</li>
+            <li><strong>Post-hook:</strong> Track data quality metrics in monitoring table</li>
+            <li><strong>Post-hook:</strong> Create performance indexes</li>
+            <li><strong>Test:</strong> Verify hooks execute and monitoring data is captured</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
+        <div id="solution3" class="solution">
+            <h4>Step 1: Create monitoring infrastructure</h4>
+            <pre>
+-- Run this SQL first to create monitoring tables
+CREATE SCHEMA IF NOT EXISTS dbt_monitoring;
+
+CREATE TABLE IF NOT EXISTS dbt_monitoring.model_execution_log (
+    execution_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_name TEXT,
+    execution_type TEXT, -- 'full_refresh' or 'incremental'
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    rows_processed INTEGER,
+    execution_time_seconds REAL
+);
+
+CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
+    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_name TEXT,
+    measured_at TIMESTAMP,
+    total_rows INTEGER,
+    unique_customers INTEGER,
+    latest_feature_date DATE,
+    earliest_feature_date DATE,
+    avg_orders_30d REAL,
+    max_orders_30d INTEGER,
+    null_count INTEGER,
+    data_quality_score REAL  -- 0-100 score
+);</pre>
+            
+            <h4>Step 2: Add hooks to your feature model</h4>
+            <p><strong>models/intermediate/int_customer_daily_features.sql (with production hooks)</strong></p>
+            <pre>
+{{ config(
+    materialized='incremental',
+    unique_key=['customer_id', 'feature_date'],
+    incremental_strategy='merge',
+    
+    pre_hook=[
+        -- Log execution start
+        "INSERT INTO dbt_monitoring.model_execution_log 
+         (model_name, execution_type, started_at) 
+         VALUES (
+           '{{ this.name }}', 
+           '{% if is_incremental() %}incremental{% else %}full_refresh{% endif %}',
+           datetime('now')
+         )",
+        
+        -- Clean old data on full refresh to keep table size manageable
+        "{% if not is_incremental() %}
+           DELETE FROM {{ this }} 
+           WHERE feature_date < date('now', '-365 days')
+         {% endif %}"
+    ],
+    
+    post_hook=[
+        -- Create performance indexes
+        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_customer_date 
+         ON {{ this }} (customer_id, feature_date DESC)",
+        
+        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_date_range 
+         ON {{ this }} (feature_date) 
+         WHERE feature_date >= date('now', '-90 days')",
+        
+        -- Update table statistics for query optimizer
+        "ANALYZE {{ this }}",
+        
+        -- Track comprehensive data quality metrics
+        "INSERT INTO dbt_monitoring.data_quality_metrics 
+         SELECT 
+           '{{ this.name }}' as model_name,
+           datetime('now') as measured_at,
+           COUNT(*) as total_rows,
+           COUNT(DISTINCT customer_id) as unique_customers,
+           MAX(feature_date) as latest_feature_date,
+           MIN(feature_date) as earliest_feature_date,
+           AVG(CAST(orders_30d AS REAL)) as avg_orders_30d,
+           MAX(orders_30d) as max_orders_30d,
+           SUM(CASE WHEN orders_30d IS NULL THEN 1 ELSE 0 END) as null_count,
+           -- Calculate data quality score (0-100)
+           CASE 
+             WHEN COUNT(*) = 0 THEN 0
+             ELSE 100.0 * (1.0 - CAST(SUM(CASE WHEN orders_30d IS NULL THEN 1 ELSE 0 END) AS REAL) / COUNT(*))
+           END as data_quality_score
+         FROM {{ this }}
+         WHERE feature_date >= date('now', '-7 days')",  -- Only recent data for quality metrics
+        
+        -- Update execution completion log
+        "UPDATE dbt_monitoring.model_execution_log 
+         SET 
+           completed_at = datetime('now'),
+           rows_processed = (SELECT COUNT(*) FROM {{ this }}),
+           execution_time_seconds = 
+             (julianday(datetime('now')) - julianday(started_at)) * 86400
+         WHERE model_name = '{{ this.name }}'
+           AND completed_at IS NULL"
+    ]
+) }}
+
+-- Your existing model SQL remains the same
+{% set lookback_days = var('lookback_days', [3, 7, 14]) %}
+
+WITH customer_dates AS (
+    SELECT 
+        c.customer_id,
+        c.landing_date,
+        d.date_day as feature_date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= date('2018-10-31')
+      
+    {% if is_incremental() %}
+      AND d.date_day >= (
+        SELECT date(MAX(feature_date), '-7 days')
+        FROM {{ this }}
+      )
+    {% endif %}
+),
+
+daily_payments AS (
+    SELECT
+        o.customer_id,
+        date(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    
+    {% if is_incremental() %}
+      AND date(o.order_purchase_timestamp) >= (
+        SELECT date(MAX(feature_date), '-14 days')
+        FROM {{ this }}
+      )
+    {% endif %}
+    
+    GROUP BY 1, 2
+),
+
+features AS (
+    SELECT
+        cd.customer_id,
+        cd.feature_date,
+        cd.landing_date,
+        
+        -- Cumulative features
+        COALESCE(
+            SUM(dp.daily_payment_value) OVER (
+                PARTITION BY cd.customer_id 
+                ORDER BY cd.feature_date 
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ), 0
+        ) as total_payment_value,
+        
+        -- Dynamic rolling window features
+        {% for days in lookback_days %}
+        COALESCE(
+            SUM(dp.daily_payment_value) OVER (
+                PARTITION BY cd.customer_id 
+                ORDER BY cd.feature_date 
+                ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+            ), 0
+        ) as payment_{{ days }}d,
+        
+        COUNT(dp.order_date) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.feature_date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+        ) as orders_{{ days }}d,
+        {% endfor %}
+        
+        -- Days metrics
+        julianday(cd.feature_date) - julianday(cd.landing_date) as days_since_landing
+        
+    FROM customer_dates cd
+    LEFT JOIN daily_payments dp
+        ON cd.customer_id = dp.customer_id
+        AND cd.feature_date >= dp.order_date
+)
+
+SELECT * FROM features</pre>
+            
+            <h4>Step 3: Test the hooks</h4>
+            <pre>
+# Run the model to trigger hooks
+dbt run --select int_customer_daily_features --full-refresh
+
+# Verify pre-hook executed (execution started)
+SELECT * FROM dbt_monitoring.model_execution_log 
+WHERE model_name = 'int_customer_daily_features'
+ORDER BY started_at DESC LIMIT 5;
+
+# Verify post-hook captured quality metrics
+SELECT 
+    model_name,
+    measured_at,
+    total_rows,
+    unique_customers,
+    latest_feature_date,
+    data_quality_score
+FROM dbt_monitoring.data_quality_metrics 
+WHERE model_name = 'int_customer_daily_features'
+ORDER BY measured_at DESC LIMIT 5;
+
+# Check that indexes were created
+SELECT name, sql 
+FROM sqlite_master 
+WHERE type = 'index' 
+  AND tbl_name = 'int_customer_daily_features';</pre>
+            
+            <h4>Step 4: Validate monitoring data</h4>
+            <pre>
+# Create a monitoring dashboard query
+SELECT 
+    e.model_name,
+    e.execution_type,
+    e.started_at,
+    e.execution_time_seconds,
+    e.rows_processed,
+    q.data_quality_score,
+    q.unique_customers,
+    CASE 
+        WHEN q.data_quality_score >= 95 THEN '🟢 Excellent'
+        WHEN q.data_quality_score >= 85 THEN '🟡 Good' 
+        WHEN q.data_quality_score >= 70 THEN '🟠 Fair'
+        ELSE '🔴 Poor'
+    END as quality_status
+FROM dbt_monitoring.model_execution_log e
+LEFT JOIN dbt_monitoring.data_quality_metrics q
+    ON e.model_name = q.model_name
+    AND datetime(e.completed_at) = datetime(q.measured_at)
+WHERE e.model_name = 'int_customer_daily_features'
+ORDER BY e.started_at DESC;</pre>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: Advanced Monitoring Hook</h3>
+            <p>Create an advanced post-hook that detects feature drift and automatically alerts when distributions change significantly:</p>
+            
+            <button class="solution-button" onclick="toggleSolution('optional3')">Show Solution</button>
+            <div id="optional3" class="solution">
+                <h4>Advanced drift detection hook:</h4>
+                <pre>
+-- Add this to your post_hook array
+"WITH current_distribution AS (
+    SELECT 
+        AVG(CAST(orders_30d AS REAL)) as mean_orders,
+        AVG(CAST(orders_30d AS REAL) * CAST(orders_30d AS REAL)) - 
+        AVG(CAST(orders_30d AS REAL)) * AVG(CAST(orders_30d AS REAL)) as var_orders,
+        MIN(orders_30d) as min_orders,
+        MAX(orders_30d) as max_orders,
+        COUNT(*) as sample_size
+    FROM {{ this }}
+    WHERE feature_date = date('now', '-1 days')
+),
+historical_baseline AS (
+    SELECT 
+        AVG(mean_orders) as baseline_mean,
+        AVG(var_orders) as baseline_var
+    FROM dbt_monitoring.feature_distributions
+    WHERE model_name = '{{ this.name }}'
+      AND feature_name = 'orders_30d'
+      AND measured_date >= date('now', '-30 days')
+),
+drift_detection AS (
+    SELECT 
+        '{{ this.name }}' as model_name,
+        'orders_30d' as feature_name,
+        datetime('now') as detected_at,
+        c.mean_orders,
+        h.baseline_mean,
+        ABS(c.mean_orders - h.baseline_mean) / 
+        SQRT(NULLIF(h.baseline_var, 0)) as z_score,
+        CASE 
+            WHEN ABS(c.mean_orders - h.baseline_mean) / 
+                 SQRT(NULLIF(h.baseline_var, 0)) > 3 
+            THEN 'CRITICAL_DRIFT'
+            WHEN ABS(c.mean_orders - h.baseline_mean) / 
+                 SQRT(NULLIF(h.baseline_var, 0)) > 2 
+            THEN 'MODERATE_DRIFT'
+            ELSE 'STABLE'
+        END as drift_status
+    FROM current_distribution c
+    CROSS JOIN historical_baseline h
+    WHERE h.baseline_var > 0
+)
+INSERT INTO dbt_monitoring.drift_alerts
+SELECT * FROM drift_detection
+WHERE drift_status IN ('CRITICAL_DRIFT', 'MODERATE_DRIFT')"</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Challenge 4: Seeds for Reference Data -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 4: Seeds for Business Logic</h2>
+        <p>Use seed files to manage business rules and reference data that enrich your ML features.</p>
+        
+        <div class="info-box">
+            <h3>📋 Concrete Instructions</h3>
+            <p><strong>What you'll create:</strong></p>
+            <ul>
+                <li><strong>Geographic data:</strong> Brazilian city tiers and economic zones</li>
+                <li><strong>Business rules:</strong> Customer segmentation criteria</li>
+                <li><strong>Feature enrichment:</strong> Join this data to your customer features</li>
+                <li><strong>Testing:</strong> Validate the enrichment works correctly</li>
+            </ul>
+            
+            <p><strong>Why this matters for ML:</strong> Business rules as code, version controlled, testable</p>
+        </div>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create <code>data/brazil_cities.csv</code> with city tier information</li>
+            <li>Create <code>data/customer_segments.csv</code> with segmentation rules</li>
+            <li>Load seeds into your database with <code>dbt seed</code></li>
+            <li>Create enriched mart table that uses both seed files</li>
+            <li>Test that enrichment is working correctly</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
+        <div id="solution4" class="solution">
+            <h4>Step 1: Create data/brazil_cities.csv</h4>
+            <pre>
+city,state,region,population_tier,economic_zone,logistics_hub
+São Paulo,SP,Southeast,mega,primary,1
+Rio de Janeiro,RJ,Southeast,mega,primary,1
+Brasília,DF,Central-West,large,primary,1
+Salvador,BA,Northeast,large,secondary,1
+Fortaleza,CE,Northeast,large,secondary,1
+Belo Horizonte,MG,Southeast,large,secondary,1
+Manaus,AM,North,large,tertiary,1
+Curitiba,PR,South,large,secondary,1
+Recife,PE,Northeast,large,secondary,1
+Porto Alegre,RS,South,large,secondary,1
+Belém,PA,North,medium,tertiary,0
+Goiânia,GO,Central-West,medium,tertiary,0
+Guarulhos,SP,Southeast,medium,primary,1
+Campinas,SP,Southeast,medium,primary,1
+São Luís,MA,Northeast,medium,tertiary,0</pre>
+            
+            <h4>Step 2: Create data/customer_segments.csv</h4>
+            <pre>
+segment_name,min_orders,max_orders,min_revenue,max_revenue,max_days_inactive,description
+vip,15,999,2000,999999,30,"High value frequent customers"
+loyal,8,14,500,1999,60,"Regular customers with good value"
+promising,3,7,200,499,90,"Growing customers with potential"
+new,1,2,1,199,30,"New customers to nurture"
+at_risk,3,999,200,999999,91,"Previously good customers becoming inactive"
+dormant,1,999,1,999999,181,"Inactive customers to win back"</pre>
+            
+            <h4>Step 3: Load the seeds</h4>
+            <pre>
+# Load both seed files into your database
+dbt seed
+
+# Load specific seed if needed
+dbt seed --select brazil_cities
+
+# Verify seeds loaded correctly
+dbt run-operation list_relations --args '{schema_name: "main"}'</pre>
+            
+            <h4>Step 4: Create enriched mart table</h4>
+            <p><strong>models/marts/mart_customer_features_enriched.sql</strong></p>
+            <pre>
+{{ config(
+    materialized='table',
+    post_hook=[
+        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_segment 
+         ON {{ this }} (segment_name, city_tier)",
+        "ANALYZE {{ this }}"
+    ]
+) }}
+
+WITH latest_features AS (
+    -- Get most recent features for each customer
+    SELECT DISTINCT ON (customer_id)
+        customer_id,
+        feature_date,
+        total_payment_value as customer_revenue,
+        orders_7d,
+        orders_30d as total_orders,
+        days_since_last_order,
+        landing_date
+    FROM {{ ref('int_customer_daily_features') }}
+    ORDER BY customer_id, feature_date DESC
+),
+
+customer_locations AS (
+    -- Get customer city/state information
+    SELECT DISTINCT ON (customer_id)
+        customer_id,
+        customer_city as city,
+        customer_state as state
+    FROM {{ ref('stg_customers') }}
+),
+
+enriched_customers AS (
+    SELECT 
+        f.*,
+        l.city,
+        l.state,
+        -- Geographic enrichment from brazil_cities seed
+        COALESCE(c.region, 'Unknown') as region,
+        COALESCE(c.population_tier, 'unknown') as city_tier,
+        COALESCE(c.economic_zone, 'unknown') as economic_zone,
+        COALESCE(c.logistics_hub, 0) as is_logistics_hub
+    FROM latest_features f
+    LEFT JOIN customer_locations l 
+        ON f.customer_id = l.customer_id
+    LEFT JOIN {{ ref('brazil_cities') }} c 
+        ON LOWER(TRIM(l.city)) = LOWER(TRIM(c.city))
+),
+
+segmented_customers AS (
+    SELECT 
+        e.*,
+        -- Apply customer segmentation rules from seed
+        COALESCE(s.segment_name, 'unclassified') as segment_name,
+        COALESCE(s.description, 'No segment assigned') as segment_description
+    FROM enriched_customers e
+    LEFT JOIN {{ ref('customer_segments') }} s
+        ON e.total_orders >= s.min_orders 
+        AND e.total_orders <= s.max_orders
+        AND e.customer_revenue >= s.min_revenue
+        AND e.customer_revenue <= s.max_revenue
+        AND COALESCE(e.days_since_last_order, 0) <= s.max_days_inactive
+)
+
+SELECT 
+    *,
+    -- Add derived features based on enrichment
+    CASE 
+        WHEN economic_zone = 'primary' THEN 'high_opportunity'
+        WHEN economic_zone = 'secondary' THEN 'medium_opportunity'
+        ELSE 'emerging_market'
+    END as market_opportunity,
+    
+    CASE 
+        WHEN segment_name IN ('vip', 'loyal') AND is_logistics_hub = 1 THEN 'premium_fast_delivery'
+        WHEN segment_name IN ('vip', 'loyal') THEN 'premium_standard'
+        WHEN is_logistics_hub = 1 THEN 'standard_fast_delivery'
+        ELSE 'standard'
+    END as service_tier,
+    
+    -- Business score combining segment and geography
+    CASE 
+        WHEN segment_name = 'vip' AND economic_zone = 'primary' THEN 100
+        WHEN segment_name = 'vip' THEN 85
+        WHEN segment_name = 'loyal' AND economic_zone = 'primary' THEN 75
+        WHEN segment_name = 'loyal' THEN 65
+        WHEN segment_name = 'promising' THEN 50
+        WHEN segment_name = 'new' THEN 35
+        WHEN segment_name = 'at_risk' THEN 25
+        ELSE 10
+    END as business_priority_score
+    
+FROM segmented_customers</pre>
+            
+            <h4>Step 5: Test the enrichment</h4>
+            <pre>
+# Run the enriched mart
+dbt run --select mart_customer_features_enriched
+
+# Verify seeds are being used correctly
+SELECT 
+    segment_name,
+    city_tier,
+    economic_zone,
+    COUNT(*) as customer_count,
+    AVG(customer_revenue) as avg_revenue,
+    AVG(business_priority_score) as avg_priority_score
+FROM mart_customer_features_enriched
+GROUP BY segment_name, city_tier, economic_zone
+ORDER BY avg_priority_score DESC;
+
+# Check for customers without enrichment (troubleshooting)
+SELECT 
+    COUNT(*) as total_customers,
+    COUNT(CASE WHEN segment_name = 'unclassified' THEN 1 END) as unclassified_count,
+    COUNT(CASE WHEN city_tier = 'unknown' THEN 1 END) as unknown_city_count,
+    ROUND(100.0 * COUNT(CASE WHEN segment_name = 'unclassified' THEN 1 END) / COUNT(*), 2) as unclassified_percent
+FROM mart_customer_features_enriched;</pre>
+            
+            <h4>Step 6: Add tests for the enriched data</h4>
+            <p><strong>models/marts/schema.yml</strong></p>
+            <pre>
+version: 2
+
+models:
+  - name: mart_customer_features_enriched
+    description: "Customer features enriched with business rules and geographic data"
+    config:
+      tags: ["mart", "ml_ready"]
+    
+    columns:
+      - name: customer_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      
+      - name: segment_name
+        description: "Customer segment from business rules"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['vip', 'loyal', 'promising', 'new', 'at_risk', 'dormant', 'unclassified']
+      
+      - name: city_tier
+        description: "City population tier from geographic data"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['mega', 'large', 'medium', 'unknown']
+      
+      - name: business_priority_score
+        description: "Composite business priority score (0-100)"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND <= 100"
+    
+    tests:
+      # Custom test: ensure most customers are classified
+      - dbt_utils.expression_is_true:
+          expression: "(SELECT COUNT(*) FROM mart_customer_features_enriched WHERE segment_name = 'unclassified') < (SELECT COUNT(*) * 0.1 FROM mart_customer_features_enriched)"
+          config:
+            severity: warn</pre>
+            
+            <p><strong>Run enrichment tests:</strong></p>
+            <pre>
+# Test the enriched mart
+dbt test --select mart_customer_features_enriched
+
+# Update seeds and see changes
+# Edit data/customer_segments.csv to add new segment
+# Then: dbt seed --full-refresh
+# Then: dbt run --select mart_customer_features_enriched</pre>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>⭐ Optional Challenge: Dynamic Segmentation</h3>
+            <p>Create a seed file with time-based segmentation rules that change by quarter:</p>
+            <ul>
+                <li>Q1 segments (acquisition focus)</li>
+                <li>Q2 segments (retention focus)</li>
+                <li>Q3 segments (expansion focus)</li>
+                <li>Q4 segments (holiday optimization)</li>
+            </ul>
+            
+            <button class="solution-button" onclick="toggleSolution('optional4')">Show Solution</button>
+            <div id="optional4" class="solution">
+                <h4>data/quarterly_segments.csv</h4>
+                <pre>
+quarter,segment_name,min_orders,max_orders,min_revenue,max_revenue,max_days_inactive,marketing_focus
+Q1,acquisition_target,0,2,0,200,30,"New customer acquisition"
+Q1,retention_priority,3,999,200,999999,60,"Prevent churn"
+Q2,growth_opportunity,2,5,100,500,45,"Increase order frequency"
+Q2,high_value_maintain,6,999,500,999999,30,"Maintain engagement"
+Q3,upsell_ready,4,999,200,800,60,"Cross-sell and upsell"
+Q3,expansion_candidate,3,999,800,999999,45,"Premium services"
+Q4,holiday_shoppers,1,999,50,999999,90,"Seasonal campaigns"
+Q4,gift_buyers,2,999,100,999999,120,"Gift-focused marketing"</pre>
+                
+                <h4>Dynamic segmentation in model:</h4>
+                <pre>
+-- Add to your enriched mart model
+{% set current_quarter = 'Q' ~ ((modules.datetime.date.today().month - 1) // 3 + 1) %}
+
+LEFT JOIN {{ ref('quarterly_segments') }} qs
+    ON qs.quarter = '{{ current_quarter }}'
+    AND e.total_orders >= qs.min_orders 
+    AND e.total_orders <= qs.max_orders
+    AND e.customer_revenue >= qs.min_revenue
+    AND e.customer_revenue <= qs.max_revenue
+    AND COALESCE(e.days_since_last_order, 0) <= qs.max_days_inactive</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="info-box">
+        <h2>🎉 Session 3 Complete!</h2>
+        
+        <h3>What You've Built:</h3>
+        <ul>
+            <li>✅ Comprehensive testing strategy (schema → unit → custom)</li>
+            <li>✅ Production freshness monitoring with clear thresholds</li>
+            <li>✅ Automated hooks for data cleaning and quality tracking</li>
+            <li>✅ Business logic as code using seeds</li>
+            <li>✅ Enriched mart table ready for ML models</li>
+            <li>✅ Monitoring infrastructure for production operations</li>
+        </ul>
+        
+        <h3>Production-Ready Capabilities:</h3>
+        <ul>
+            <li><strong>Quality Assurance:</strong> Multiple layers of testing prevent bad data</li>
+            <li><strong>Operational Monitoring:</strong> Automated tracking of data freshness and quality</li>
+            <li><strong>Performance Optimization:</strong> Indexes and statistics for fast queries</li>
+            <li><strong>Business Logic Management:</strong> Version-controlled rules and reference data</li>
+            <li><strong>Observability:</strong> Comprehensive logging and metrics</li>
+        </ul>
+        
+        <h3>Key Concepts Mastered:</h3>
+        <ul>
+            <li>Testing progression: schema → unit → custom</li>
+            <li>Freshness monitoring with appropriate thresholds</li>
+            <li>Production hooks for automation</li>
+            <li>Seeds for business logic as code</li>
+            <li>Data quality tracking and alerting</li>
+            <li>Performance optimization techniques</li>
+        </ul>
+        
+        <h3>Next Steps (Back to Presentation):</h3>
+        <p>Now we'll return to the presentation for the grand finale:</p>
+        <ul>
+            <li>🚀 Feast integration for real-time serving</li>
+            <li>🏗️ Complete production architecture</li>
+            <li>📈 Scaling to enterprise workloads</li>
+            <li>🗺️ Your 30-day implementation roadmap</li>
+        </ul>
+        
+        <div class="feast-box">
+            <h3>🎊 Congratulations!</h3>
+            <p>You've built the production-ready backbone that powers ML systems at companies like Netflix, Spotify, and Airbnb. You now have the skills to:</p>
+            <ul>
+                <li>Build reliable, scalable feature pipelines</li>
+                <li>Prevent the most common ML failures</li>
+                <li>Deploy with confidence to production</li>
+                <li>Scale from thousands to millions of entities</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

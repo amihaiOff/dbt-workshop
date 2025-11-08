@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session 1: dbt Foundations - Hands-on Exercises</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+        }
+        
+        h3 {
+            color: #7f8c8d;
+            margin-top: 20px;
+        }
+        
+        .info-box {
+            background-color: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .challenge-box {
+            background-color: #fff;
+            border: 2px solid #27ae60;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .optional-challenge {
+            background-color: #ffeaa7;
+            border: 2px dashed #fdcb6e;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+        
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        .solution {
+            display: none;
+            background-color: #e8f8f5;
+            border: 2px solid #27ae60;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+        
+        .solution-button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .solution-button:hover {
+            background-color: #2980b9;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background-color: white;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        .highlight {
+            background-color: #ffeb3b;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+    </style>
+    <script>
+        function toggleSolution(id) {
+            var solution = document.getElementById(id);
+            var button = event.target;
+            if (solution.style.display === 'none' || solution.style.display === '') {
+                solution.style.display = 'block';
+                button.textContent = 'Hide Solution';
+            } else {
+                solution.style.display = 'none';
+                button.textContent = 'Show Solution';
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>🚀 Session 1: dbt Foundations - Hands-on Exercises</h1>
+    
+    <div class="info-box">
+        <h3>⏱️ Duration: 1-1.5 hours</h3>
+        <p><strong>Prerequisites:</strong> dbt installed, PostgreSQL database with Olist data loaded in schema <code>olist_data</code></p>
+        <p><strong>Goal:</strong> Build the foundation of a feature engineering pipeline for customer churn prediction</p>
+    </div>
+
+    <h2>📊 Business Context: Customer Churn Prediction</h2>
+    
+    <div class="info-box">
+        <h3>The Problem We're Solving</h3>
+        <p>We want to predict customer churn for an e-commerce platform. Specifically:</p>
+        <ul>
+            <li><strong>Prediction Entity:</strong> Customer + Date (we make daily predictions for each customer)</li>
+            <li><strong>Target Variable:</strong> Will the customer have zero transactions in the next 90 days?</li>
+            <li><strong>Feature Tables:</strong> Daily aggregated features for each customer</li>
+            <li><strong>Label:</strong> Binary indicator of churn (1 = churned, 0 = active)</li>
+        </ul>
+        
+        <p><strong>Training Data Structure:</strong></p>
+        <table>
+            <tr>
+                <th>customer_id</th>
+                <th>prediction_date</th>
+                <th>features...</th>
+                <th>will_churn_90d</th>
+            </tr>
+            <tr>
+                <td>cust_001</td>
+                <td>2018-01-15</td>
+                <td>...</td>
+                <td>0</td>
+            </tr>
+            <tr>
+                <td>cust_001</td>
+                <td>2018-01-16</td>
+                <td>...</td>
+                <td>0</td>
+            </tr>
+            <tr>
+                <td>cust_002</td>
+                <td>2018-01-15</td>
+                <td>...</td>
+                <td>1</td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>🏗️ Project Structure</h2>
+    
+    <div class="info-box">
+        <h3>dbt Project Organization</h3>
+        <pre>
+your_project/
+├── models/
+│   ├── staging/           # Raw data cleaning (stg_ prefix)
+│   │   ├── schema.yml
+│   │   └── stg_*.sql
+│   ├── intermediate/       # Business logic (int_ prefix)
+│   │   ├── schema.yml
+│   │   └── int_*.sql
+│   └── marts/             # Final feature/label tables
+│       ├── schema.yml
+│       └── mart_*.sql
+├── macros/                # Reusable SQL functions
+├── data/                  # CSV seed files
+├── tests/                 # Custom tests
+└── dbt_project.yml        # Project configuration
+        </pre>
+        
+        <h4>Key Concepts:</h4>
+        <ul>
+            <li><strong>Staging (stg_):</strong> Clean and standardize raw data</li>
+            <li><strong>Intermediate (int_):</strong> Apply business logic and transformations</li>
+            <li><strong>Marts (mart_):</strong> Final tables for consumption</li>
+            <li><strong>schema.yml:</strong> Documentation and tests for models</li>
+        </ul>
+    </div>
+
+    <h2>🔧 dbt Internals</h2>
+    
+    <div class="info-box">
+        <h3>Essential dbt Functions</h3>
+        
+        <h4>1. Sources - Accessing External Tables</h4>
+        <pre>
+# models/staging/schema.yml
+version: 2
+sources:
+  - name: olist_data
+    schema: olist_data
+    tables:
+      - name: orders
+        columns:
+          - name: order_id
+            description: Primary key</pre>
+        
+        <p>Use in SQL: <code>{{ source('olist_data', 'orders') }}</code></p>
+        
+        <h4>2. Refs - Referencing dbt Models</h4>
+        <p>Use <code>{{ ref('model_name') }}</code> to reference other dbt models. This creates dependencies in the DAG.</p>
+        
+        <h4>3. Model Configuration</h4>
+        <pre>
+{{ config(
+    materialized='table',  -- or 'view', 'incremental'
+    schema='staging'       -- optional schema override
+) }}</pre>
+        
+        <h4>4. Running dbt Commands</h4>
+        <ul>
+            <li><code>dbt run</code> - Run all models</li>
+            <li><code>dbt run --select model_name</code> - Run specific model</li>
+            <li><code>dbt run --select +model_name</code> - Run model and dependencies</li>
+            <li><code>dbt compile</code> - Compile without running</li>
+            <li><code>dbt test</code> - Run tests</li>
+        </ul>
+    </div>
+
+    <h2>🌐 The Push Architecture Advantage</h2>
+    
+    <div class="info-box">
+        <h3>Why Push Architecture Transforms ML Operations</h3>
+        
+        <p><strong>Traditional Pull Model (Pandas/Notebooks):</strong></p>
+        <pre>
+When prediction needed → Pull raw data → Compute features → Train/predict
+                       ↑ Slow, memory hungry, error-prone
+</pre>
+        
+        <p><strong>Push Model (dbt + Feature Tables):</strong></p>
+        <pre>
+Data arrives → dbt runs → Features pre-computed → Ready for use
+                       ↑ Fast, efficient, reliable
+</pre>
+        
+        <h4>Push Architecture Benefits:</h4>
+        <ul>
+            <li><strong>Features Ready When Needed:</strong> No waiting for computation at prediction time</li>
+            <li><strong>Compute Once, Use Many Times:</strong> Same features serve training, validation, inference</li>
+            <li><strong>Event-Driven Future:</strong> Natural progression to real-time feature updates</li>
+            <li><strong>Resource Optimization:</strong> Batch processing is much more efficient than on-demand</li>
+            <li><strong>Reliability:</strong> Features computed during stable batch windows, not under prediction pressure</li>
+        </ul>
+        
+        <h4>This Sets You Up For:</h4>
+        <ul>
+            <li>Event-driven feature updates (new order → update customer features)</li>
+            <li>Real-time serving from pre-computed features</li>
+            <li>Feature reuse across multiple models</li>
+            <li>Simplified monitoring and debugging</li>
+        </ul>
+        
+        <p><strong>Key Insight:</strong> Push architecture makes your ML system <em>reactive</em> rather than <em>reactive under pressure</em>. Features are always ready!</p>
+    </div>
+
+    <!-- Challenge 1 -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 1: Create Staging Tables</h2>
+        <p>Create clean staging tables for the Olist data. Focus on type casting and cleaning.</p>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create <code>models/staging/schema.yml</code> with source definitions</li>
+            <li>Create <code>stg_orders.sql</code> with proper type casting</li>
+            <li>Create <code>stg_customers.sql</code></li>
+            <li>Create <code>stg_order_items.sql</code></li>
+            <li>Create <code>stg_order_payments.sql</code></li>
+        </ol>
+        
+        <h3>Tasks:</h3>
+        <ul>
+            <li>Cast timestamps properly (use <code>::timestamp</code>)</li>
+            <li>Cast numeric fields appropriately</li>
+            <li>Rename columns for consistency (snake_case)</li>
+            <li>Filter out test orders if any</li>
+        </ul>
+        
+        <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
+        <div id="solution1" class="solution">
+            <h4>models/staging/schema.yml</h4>
+            <pre>
+version: 2
+
+sources:
+  - name: olist_data
+    schema: olist_data
+    tables:
+      - name: olist_orders_dataset
+        columns:
+          - name: order_id
+            description: Unique order identifier
+      - name: olist_customers_dataset
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+      - name: olist_order_items_dataset
+        columns:
+          - name: order_id
+            description: Order identifier
+      - name: olist_order_payments_dataset
+        columns:
+          - name: order_id
+            description: Order identifier</pre>
+            
+            <h4>models/staging/stg_orders.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+SELECT
+    order_id,
+    customer_id,
+    order_status,
+    order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    order_approved_at::timestamp as order_approved_at,
+    order_delivered_carrier_date::timestamp as order_delivered_carrier_date,
+    order_delivered_customer_date::timestamp as order_delivered_customer_date,
+    order_estimated_delivery_date::timestamp as order_estimated_delivery_date,
+    DATE(order_purchase_timestamp) as order_date
+FROM {{ source('olist_data', 'olist_orders_dataset') }}
+WHERE order_status != 'unavailable'  -- Filter test orders
+  AND order_purchase_timestamp IS NOT NULL</pre>
+            
+            <h4>models/staging/stg_customers.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+SELECT
+    customer_id,
+    customer_unique_id,
+    customer_zip_code_prefix,
+    customer_city,
+    customer_state
+FROM {{ source('olist_data', 'olist_customers_dataset') }}
+WHERE customer_id IS NOT NULL</pre>
+            
+            <h4>models/staging/stg_order_items.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+SELECT
+    order_id,
+    order_item_id::int as order_item_id,
+    product_id,
+    seller_id,
+    shipping_limit_date::timestamp as shipping_limit_date,
+    price::decimal(10,2) as price,
+    freight_value::decimal(10,2) as freight_value
+FROM {{ source('olist_data', 'olist_order_items_dataset') }}
+WHERE order_id IS NOT NULL
+  AND price > 0</pre>
+            
+            <h4>models/staging/stg_order_payments.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+SELECT
+    order_id,
+    payment_sequential::int as payment_sequential,
+    payment_type,
+    payment_installments::int as payment_installments,
+    payment_value::decimal(10,2) as payment_value
+FROM {{ source('olist_data', 'olist_order_payments_dataset') }}
+WHERE order_id IS NOT NULL
+  AND payment_value > 0</pre>
+            
+            <p><strong>Run your first model:</strong></p>
+            <pre>dbt run --select stg_orders</pre>
+            <p>Then check in your database - you should see a new table created!</p>
+        </div>
+    </div>
+
+    <!-- Challenge 2 -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 2: Create Entity Landing Table</h2>
+        <p>Create an intermediate table that identifies when each customer "landed" (made their first purchase).</p>
+        
+        <div class="info-box">
+            <h3>🔗 Understanding dbt ref() Function</h3>
+            <p>The <code>{{ ref() }}</code> function is how dbt models reference each other, creating dependencies in the execution DAG.</p>
+            
+            <h4>How it works:</h4>
+            <ul>
+                <li><code>{{ ref('stg_orders') }}</code> tells dbt this model depends on the <code>stg_orders</code> model</li>
+                <li>dbt automatically builds dependencies in the correct order</li>
+                <li>If <code>stg_orders</code> changes, dbt knows to rebuild this model too</li>
+                <li>Creates fully-qualified table names (schema.table) automatically</li>
+            </ul>
+            
+            <p><strong>Example:</strong></p>
+            <pre>
+-- Instead of: FROM my_schema.stg_orders
+-- Use: FROM {{ ref('stg_orders') }}
+-- dbt handles schema management and dependencies!
+</pre>
+        </div>
+        
+        <div class="info-box">
+            <h3>📦 Understanding dbt Packages & dbt-utils</h3>
+            <p><strong>dbt Packages</strong> are reusable collections of macros, models, and tests that extend dbt's functionality.</p>
+            
+            <h4>What is dbt-utils?</h4>
+            <ul>
+                <li><strong>Official dbt package</strong> with 50+ utility macros</li>
+                <li><strong>Macros</strong> are reusable SQL functions (we'll build our own next week!)</li>
+                <li>Includes functions for dates, strings, pivoting, surrogate keys, and more</li>
+                <li><strong>Cross-database compatible</strong> - works with PostgreSQL, Snowflake, BigQuery, etc.</li>
+            </ul>
+            
+            <h4>Popular dbt Packages:</h4>
+            <ul>
+                <li><strong>dbt-utils:</strong> Essential utilities (date_spine, generate_surrogate_key, pivot)</li>
+                <li><strong>dbt-expectations:</strong> Advanced data testing (like great_expectations)</li>
+                <li><strong>audit-helper:</strong> Compare data between environments</li>
+                <li><strong>codegen:</strong> Generate dbt code automatically</li>
+                <li><strong>fivetran-utils:</strong> Utilities for Fivetran data sources</li>
+            </ul>
+            
+            <h4>Installation (packages.yml):</h4>
+            <pre>
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.1.1
+  - package: calogica/dbt_expectations  
+    version: 0.10.1</pre>
+            
+            <p><strong>Explore more:</strong> <a href="https://hub.getdbt.com/" target="_blank">dbt Package Hub</a> - Hundreds of community packages!</p>
+        </div>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create <code>models/intermediate/int_customer_landing.sql</code></li>
+            <li>Join staging tables using <code>{{ ref() }}</code></li>
+            <li>Calculate first transaction timestamp per customer</li>
+            <li>Use dbt_utils.generate_surrogate_key for unique identifier</li>
+        </ol>
+        
+        <h3>Expected Columns:</h3>
+        <ul>
+            <li><code>customer_id</code> - Unique customer identifier</li>
+            <li><code>first_order_timestamp</code> - Timestamp of first order</li>
+            <li><code>landing_date</code> - Date of first order</li>
+            <li><code>customer_unique_key</code> - Surrogate key</li>
+        </ul>
+        
+        <div class="warning-box">
+            <strong>Note:</strong> First install dbt-utils: Add to <code>packages.yml</code>:
+            <pre>
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.1.1</pre>
+            Then run: <code>dbt deps</code>
+        </div>
+        
+        <button class="solution-button" onclick="toggleSolution('solution2')">Show Solution</button>
+        <div id="solution2" class="solution">
+            <h4>models/intermediate/int_customer_landing.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+WITH first_orders AS (
+    SELECT 
+        o.customer_id,
+        MIN(o.order_purchase_timestamp) as first_order_timestamp,
+        DATE(MIN(o.order_purchase_timestamp)) as landing_date
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_customers') }} c
+        ON o.customer_id = c.customer_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY o.customer_id
+)
+
+SELECT
+    customer_id,
+    first_order_timestamp,
+    landing_date,
+    {{ dbt_utils.generate_surrogate_key(['customer_id', 'landing_date']) }} as customer_unique_key
+FROM first_orders</pre>
+            
+            <p><strong>Run the model:</strong></p>
+            <pre>dbt run --select int_customer_landing</pre>
+        </div>
+    </div>
+
+    <!-- Challenge 3 -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 3: Create Entity-Centric Feature Table</h2>
+        <p>Build a daily feature table that tracks cumulative payments for each customer since landing.</p>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create <code>models/intermediate/int_customer_daily_features.sql</code></li>
+            <li>Use <code>dbt_utils.date_spine</code> to generate daily rows</li>
+            <li>Calculate cumulative payment values up to each date</li>
+            <li>One row per customer per day (after landing)</li>
+        </ol>
+        
+        <h3>Key Concepts:</h3>
+        <ul>
+            <li>Generate a date spine from landing date to current date</li>
+            <li>Join with payment data</li>
+            <li>Calculate running totals</li>
+        </ul>
+        
+        <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
+        <div id="solution3" class="solution">
+            <h4>models/intermediate/int_customer_daily_features.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+WITH customer_dates AS (
+    -- Generate daily rows for each customer from landing to today
+    SELECT 
+        c.customer_id,
+        c.landing_date,
+        d.date_day as feature_date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= '2018-10-31'::date  -- Latest date in dataset
+),
+
+daily_payments AS (
+    -- Calculate daily payment totals
+    SELECT
+        o.customer_id,
+        DATE(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1, 2
+)
+
+SELECT
+    cd.customer_id,
+    cd.feature_date,
+    cd.landing_date,
+    -- Cumulative payment value up to this date
+    COALESCE(
+        SUM(dp.daily_payment_value) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.feature_date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ), 0
+    ) as total_payment_value,
+    -- Days since landing
+    cd.feature_date - cd.landing_date as days_since_landing,
+    -- Count of orders up to this date
+    COUNT(dp.order_date) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.feature_date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_orders
+FROM customer_dates cd
+LEFT JOIN daily_payments dp
+    ON cd.customer_id = dp.customer_id
+    AND cd.feature_date >= dp.order_date</pre>
+            
+            <p><strong>Run the model:</strong></p>
+            <pre>dbt run --select int_customer_daily_features</pre>
+        </div>
+        
+        <!-- Optional Challenges -->
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge 1: Add More Features</h3>
+            <p>Extend the feature table with:</p>
+            <ul>
+                <li>Average order value (cumulative)</li>
+                <li>Days since last order</li>
+                <li>Max payment value to date</li>
+                <li>Distinct product categories purchased</li>
+            </ul>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge 2: Create Labels Table</h3>
+            <p>Create <code>int_customer_labels.sql</code> that calculates whether a customer churned (no transactions for 90 days).</p>
+            
+            <button class="solution-button" onclick="toggleSolution('optional2')">Show Solution</button>
+            <div id="optional2" class="solution">
+                <pre>
+{{ config(materialized='table') }}
+
+WITH future_orders AS (
+    SELECT 
+        customer_id,
+        DATE(order_purchase_timestamp) as order_date
+    FROM {{ ref('stg_orders') }}
+    WHERE order_status NOT IN ('canceled', 'unavailable')
+)
+
+SELECT 
+    f.customer_id,
+    f.feature_date,
+    CASE 
+        WHEN MIN(fo.order_date) IS NULL THEN 1  -- No future orders = churned
+        WHEN MIN(fo.order_date) - f.feature_date > 90 THEN 1  -- Gap > 90 days = churned
+        ELSE 0  -- Active
+    END as will_churn_90d
+FROM {{ ref('int_customer_daily_features') }} f
+LEFT JOIN future_orders fo
+    ON f.customer_id = fo.customer_id
+    AND fo.order_date > f.feature_date
+    AND fo.order_date <= f.feature_date + INTERVAL '90 days'
+GROUP BY 1, 2</pre>
+            </div>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge 3: One-Hot Encoding with Pivot</h3>
+            <p>Use <code>dbt_utils.pivot</code> to create one-hot encoded payment type features.</p>
+            
+            <div class="info-box">
+                <h4>🔄 Understanding dbt_utils.pivot</h4>
+                <p>The <code>pivot</code> macro transforms rows into columns - perfect for one-hot encoding categorical variables.</p>
+                
+                <h4>How it works:</h4>
+                <pre>
+{{ dbt_utils.pivot(
+    column='category_column',           -- Column with values to pivot
+    values=['value1', 'value2'],        -- List of values to create columns for
+    agg='sum',                          -- Aggregation function
+    then_value='count_column',          -- What to aggregate
+    else_value=0                        -- Default value for nulls
+) }}</pre>
+                
+                <p><strong>Example:</strong> Turn payment types into separate columns (credit_card_count, boleto_count, etc.)</p>
+                <p><strong>Documentation:</strong> <a href="https://github.com/dbt-labs/dbt-utils#pivot-source" target="_blank">dbt-utils pivot macro</a></p>
+            </div>
+            
+            <button class="solution-button" onclick="toggleSolution('optional3')">Show Solution</button>
+            <div id="optional3" class="solution">
+                <pre>
+WITH payment_types AS (
+    SELECT 
+        o.customer_id,
+        p.payment_type,
+        COUNT(*) as payment_count
+    FROM {{ ref('stg_orders') }} o
+    JOIN {{ ref('stg_order_payments') }} p ON o.order_id = p.order_id
+    GROUP BY 1, 2
+)
+
+SELECT 
+    customer_id,
+    {{ dbt_utils.pivot(
+        column='payment_type',
+        values=['credit_card', 'boleto', 'voucher', 'debit_card'],
+        agg='sum',
+        then_value='payment_count',
+        else_value=0
+    ) }}
+FROM payment_types
+GROUP BY customer_id</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Jinja Introduction -->
+    <div class="info-box">
+        <h2>🎨 Jinja Templating in dbt</h2>
+        
+        <h3>Basic Jinja Syntax:</h3>
+        <pre>
+-- If/Else
+{% if target.name == 'prod' %}
+    WHERE created_at >= '2024-01-01'
+{% else %}
+    WHERE created_at >= '2024-06-01'
+{% endif %}
+
+-- For Loops
+{% for days in [3, 7, 14, 30] %}
+    SUM(CASE WHEN order_date >= feature_date - {{ days }} THEN payment_value END) 
+        as payment_{{ days }}d,
+{% endfor %}
+
+-- Set Variables
+{% set payment_types = ['credit_card', 'boleto', 'voucher'] %}
+        </pre>
+        
+        <h3>Debugging Jinja Errors:</h3>
+        <ol>
+            <li>Run <code>dbt compile</code> to check syntax without executing</li>
+            <li>Check <code>target/compiled/</code> for compiled SQL</li>
+            <li>Check <code>target/run/</code> for executed SQL</li>
+            <li>Use <code>dbt --debug run</code> for verbose output</li>
+        </ol>
+    </div>
+
+    <!-- Challenge 4 -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 4: Dynamic Feature Generation with Jinja</h2>
+        <p>Extend the daily features table with rolling window payment sums using Jinja macros.</p>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Modify <code>int_customer_daily_features.sql</code></li>
+            <li>Add payment sums for last 3, 7, and 14 days</li>
+            <li>Use Jinja loop to generate columns dynamically</li>
+            <li>Each column should be named <code>payment_Xd</code> (e.g., payment_3d)</li>
+        </ol>
+        
+        <h3>Example:</h3>
+        <p>For customer X who landed on 2018-01-01, on date 2018-03-15:</p>
+        <ul>
+            <li><code>payment_3d</code> = sum of payments from 2018-03-13 to 2018-03-15</li>
+            <li><code>payment_7d</code> = sum of payments from 2018-03-09 to 2018-03-15</li>
+            <li><code>payment_14d</code> = sum of payments from 2018-03-02 to 2018-03-15</li>
+        </ul>
+        
+        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
+        <div id="solution4" class="solution">
+            <h4>models/intermediate/int_customer_daily_features.sql (Updated)</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+{% set lookback_days = [3, 7, 14] %}
+
+WITH customer_dates AS (
+    -- Generate daily rows for each customer from landing to today
+    SELECT 
+        c.customer_id,
+        c.landing_date,
+        d.date_day as feature_date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= '2018-10-31'::date
+),
+
+daily_payments AS (
+    SELECT
+        o.customer_id,
+        DATE(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1, 2
+),
+
+features AS (
+    SELECT
+        cd.customer_id,
+        cd.feature_date,
+        cd.landing_date,
+        -- Cumulative features
+        COALESCE(
+            SUM(dp.daily_payment_value) OVER (
+                PARTITION BY cd.customer_id 
+                ORDER BY cd.feature_date 
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ), 0
+        ) as total_payment_value,
+        
+        -- Days since landing
+        cd.feature_date - cd.landing_date as days_since_landing,
+        
+        -- Total orders
+        COUNT(dp.order_date) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.feature_date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) as total_orders,
+        
+        -- Rolling window features using Jinja
+        {% for days in lookback_days %}
+        COALESCE(
+            SUM(dp.daily_payment_value) OVER (
+                PARTITION BY cd.customer_id 
+                ORDER BY cd.feature_date 
+                ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+            ), 0
+        ) as payment_{{ days }}d,
+        
+        COUNT(dp.order_date) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.feature_date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+        ) as orders_{{ days }}d,
+        {% endfor %}
+        
+        -- Days since last order
+        cd.feature_date - MAX(dp.order_date) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.feature_date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) as days_since_last_order
+        
+    FROM customer_dates cd
+    LEFT JOIN daily_payments dp
+        ON cd.customer_id = dp.customer_id
+        AND cd.feature_date >= dp.order_date
+)
+
+SELECT * FROM features</pre>
+            
+            <p><strong>Run the updated model:</strong></p>
+            <pre>dbt run --select int_customer_daily_features --full-refresh</pre>
+        </div>
+        
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: Advanced Rolling Features</h3>
+            <p>Add more sophisticated rolling window features:</p>
+            <ul>
+                <li>Average payment value in rolling windows</li>
+                <li>Standard deviation of payments</li>
+                <li>Max/Min payment in each window</li>
+                <li>Trend (compare 7d vs 14d averages)</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Model Building Competition -->
+    <div class="info-box">
+        <h2>🏆 Optional Model Building Competition</h2>
+        
+        <h3>The Challenge:</h3>
+        <p>Who can build the best customer churn prediction model using ONLY features generated through dbt?</p>
+        
+        <h4>Rules:</h4>
+        <ul>
+            <li><strong>Features Only:</strong> Use only data generated from your dbt models</li>
+            <li><strong>Fair Comparison:</strong> Same dataset, same target variable (90-day churn)</li>
+            <li><strong>Training Period:</strong> Use data up to 2018-08-01 for training</li>
+            <li><strong>Test Period:</strong> Evaluate on 2018-08-02 to 2018-10-31</li>
+        </ul>
+        
+        <h4>Scoring Metrics:</h4>
+        <ul>
+            <li><strong>Primary:</strong> AUC-ROC (Area Under Curve)</li>
+            <li><strong>Secondary:</strong> Precision at 10% recall (actionable predictions)</li>
+            <li><strong>Bonus Points:</strong> Creative feature engineering with dbt</li>
+        </ul>
+        
+        <h4>Sample Training Code:</h4>
+        <pre>
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
+
+# Load your dbt-generated features
+query = """
+SELECT customer_id, feature_date, 
+       total_payment_value, days_since_landing, 
+       payment_3d, payment_7d, payment_14d,
+       will_churn_90d
+FROM int_customer_labels l
+JOIN int_customer_daily_features f USING (customer_id, feature_date)
+WHERE feature_date <= '2018-08-01'
+  AND will_churn_90d IS NOT NULL
+"""
+
+df_train = pd.read_sql(query, connection)
+features = ['total_payment_value', 'days_since_landing', 'payment_3d', 'payment_7d', 'payment_14d']
+
+X_train = df_train[features]
+y_train = df_train['will_churn_90d']
+
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Evaluate on test set...
+print(f"Training AUC: {roc_auc_score(y_train, model.predict_proba(X_train)[:, 1]):.3f}")
+</pre>
+        
+        <h4>Ideas for Advanced Features:</h4>
+        <ul>
+            <li>Seasonality patterns (month of year, day of week effects)</li>
+            <li>Customer lifecycle stages (new, growing, mature, declining)</li>
+            <li>Product diversity metrics (number of categories purchased)</li>
+            <li>Payment behavior patterns (installment usage, payment method preferences)</li>
+            <li>Recency, Frequency, Monetary (RFM) scores</li>
+        </ul>
+        
+        <div class="warning-box">
+            <strong>Competition Guidelines:</strong>
+            <ul>
+                <li>Share your dbt models and final AUC score</li>
+                <li>Document interesting patterns you discovered</li>
+                <li>Focus on production-ready feature engineering practices</li>
+                <li>Consider feature interpretability and business value</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="info-box">
+        <h2>🎉 Session 1 Complete!</h2>
+        
+        <h3>What You've Built:</h3>
+        <ul>
+            <li>✅ Clean staging tables from raw Olist data</li>
+            <li>✅ Customer landing (first purchase) tracking</li>
+            <li>✅ Daily feature table with cumulative and rolling metrics</li>
+            <li>✅ Foundation for churn prediction model</li>
+            <li>✅ Used dbt sources, refs, and model configurations</li>
+            <li>✅ Applied Jinja templating for dynamic SQL generation</li>
+            <li>✅ Understood push architecture benefits</li>
+        </ul>
+        
+        <h3>Key Concepts Mastered:</h3>
+        <ul>
+            <li>Project structure (staging → intermediate → marts)</li>
+            <li>Source and ref functions for dependency management</li>
+            <li>dbt_utils functionality (date_spine, surrogate_key, pivot)</li>
+            <li>Jinja templating for dynamic SQL generation</li>
+            <li>Entity-centric feature engineering</li>
+            <li>Push vs Pull architecture advantages</li>
+        </ul>
+        
+        <h3>Next Session Preview:</h3>
+        <p>In Session 2, we'll add:</p>
+        <ul>
+            <li>Slowly changing dimensions with snapshots</li>
+            <li>Incremental models for efficiency</li>
+            <li>Point-in-time correctness for preventing data leakage</li>
+            <li>Advanced macros and custom functions</li>
+            <li>Handling late-arriving data</li>
+        </ul>
+        
+        <div class="warning-box">
+            <strong>Before Next Session:</strong> Make sure all your models run successfully. You'll build on top of them in Session 2!
+        </div>
+    </div>
+</body>
+</html>
