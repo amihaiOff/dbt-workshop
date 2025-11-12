@@ -1,0 +1,29 @@
+{
+  "database-client.connections": [
+    {
+      "host": "postgres",
+      "port": 5432,
+      "user": "dbt_user",
+      "password": "dbt_password",
+      "database": "dbt_workshop",
+      "dbType": "PostgreSQL",
+      "name": "DBT Workshop",
+      "schema": "olist_data"
+    }
+  ],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.pytest_cache": true,
+    "**/dbt_packages": true,
+    "**/target": true,
+    "**/.DS_Store": true
+  },
+  "editor.formatOnSave": false,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "python.defaultInterpreterPath": "/opt/venv/bin/python",
+  "terminal.integrated.env.linux": {
+    "PATH": "/opt/venv/bin:${env:PATH}"
+  }
+}
