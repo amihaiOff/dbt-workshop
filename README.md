@@ -74,9 +74,21 @@ The PostgreSQL connection is **pre-configured and ready to use**:
    - Right-click any table → "Show Table" to view data
    - Double-click a table to see its structure
 7. **Run SQL queries**:
-   - Click the "SQL" button at the top
+   - Click the "SQL" or "Data" button at the top
    - Write your query
    - Press `Cmd/Ctrl + Enter` or click the play button to execute
+
+**Manual setup:**
+- Click on create new connection
+- Choose PostgreSQL in the server type
+- Use these credentials
+   - Host: `localhost` (from your machine) or `postgres` (from dbt-workshop container)
+   - Port: `5432`
+   - Database: `dbt_workshop`
+   - User: `dbt_user`
+   - Password: `dbt_password`
+- Click connect to check that it works
+- Save the connections
 
 **Troubleshooting:**
 - If connection doesn't appear: Click the refresh icon (↻) in the Database Client panel
@@ -90,14 +102,6 @@ The PostgreSQL connection is **pre-configured and ready to use**:
 - ER diagram visualization
 - Table statistics and indexes
 - **Zero manual configuration needed!**
-
-### PostgreSQL Database
-- Host: `localhost` (from your machine) or `postgres` (from dbt-workshop container)
-- Port: `5432`
-- Database: `dbt_workshop`
-- User: `dbt_user`
-- Password: `dbt_password`
-- Schema: `olist_data`
 
 ### Connection String
 ```
