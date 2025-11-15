@@ -2,10 +2,10 @@
 
 SELECT
     order_id,
-    CAST(payment_sequential AS INTEGER) as payment_sequential,
+    payment_sequential::int as payment_sequential,
     payment_type,
-    CAST(payment_installments AS INTEGER) as payment_installments,
-    CAST(payment_value AS REAL) as payment_value
-FROM {{ source('olist_data', 'olist_data__olist_order_payments') }}
+    payment_installments::int as payment_installments,
+    payment_value::decimal(10,2) as payment_value
+FROM {{ source('olist_data', 'olist_order_payments') }}
 WHERE order_id IS NOT NULL
   AND payment_value > 0
