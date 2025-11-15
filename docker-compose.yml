@@ -1,6 +1,21 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dbt-workshop-postgres
+    environment:
+      - POSTGRES_USER=dbt_user
+      - POSTGRES_PASSWORD=dbt_password
+      - POSTGRES_DB=dbt_workshop
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbt_user -d dbt_workshop"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   dbt-workshop:
     build:
       context: .
@@ -10,12 +25,24 @@ services:
       - "8080:8080"
     volumes:
       - .:/home/coder/project
-    command: /usr/local/bin/start.sh
+    entrypoint: ["/usr/bin/dumb-init", "--"]
+    command: ["/usr/local/bin/start.sh"]
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
       - DBT_PROFILES_DIR=/home/coder/project
       - PASSWORD=workshop
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dbt_user
+      - POSTGRES_PASSWORD=dbt_password
+      - POSTGRES_DB=dbt_workshop
+    depends_on:
+      postgres:
+        condition: service_healthy
     stdin_open: true
     tty: true
+
+volumes:
+  postgres_data:
 
