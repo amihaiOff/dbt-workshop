@@ -1,14 +1,12 @@
-{{ config(materialized='table') }}
+{{ config(
+    materialized='incremental',
+    unique_key=['customer_id', 'feature_date'],
+    incremental_strategy='merge'
+) }}
 
 -- Use variables with hierarchy demonstration
-{% set lookback_days = var('lookback_days') %}
-{% set max_feature_date = var('max_feature_date') %}
-{% set min_order_value = var('min_order_value', 0) %}
-
--- Log variable values to see what's being used
-{{ log("Using lookback_days: " ~ lookback_days, info=True) }}
-{{ log("Max feature date: " ~ max_feature_date, info=True) }}
-{{ log("Min order value: " ~ min_order_value, info=True) }}
+{% set lookback_days = var('lookback_days', [3, 7, 14]) %}
+{% set max_feature_date = var('max_feature_date', '2018-10-31') %}
 
 WITH customer_dates AS (
     SELECT 
@@ -25,6 +23,14 @@ WITH customer_dates AS (
     ) d
     WHERE d.date_day >= c.landing_date
       AND d.date_day <= '{{ max_feature_date }}'::date
+      
+    {% if is_incremental() %}
+      -- Only process recent feature dates for incremental runs
+      AND d.date_day >= (
+        SELECT MAX(feature_date) - INTERVAL '7 days'
+        FROM {{ this }}
+      )
+    {% endif %}
 ),
 
 daily_payments AS (
@@ -36,7 +42,15 @@ daily_payments AS (
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
     WHERE o.order_status NOT IN ('canceled', 'unavailable')
-      AND p.payment_value >= {{ min_order_value }}  -- Using variable
+    
+    {% if is_incremental() %}
+      -- Look back for late-arriving data
+      AND DATE(o.order_purchase_timestamp) >= (
+        SELECT MAX(feature_date) - INTERVAL '14 days'
+        FROM {{ this }}
+      )
+    {% endif %}
+    
     GROUP BY 1, 2
 ),
 
@@ -46,7 +60,7 @@ features AS (
         cd.feature_date,
         cd.landing_date,
         
-        -- Cumulative features
+        -- Cumulative features (computed in window)
         COALESCE(
             SUM(dp.daily_payment_value) OVER (
                 PARTITION BY cd.customer_id 

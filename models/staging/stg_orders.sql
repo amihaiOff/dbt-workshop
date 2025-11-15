@@ -13,3 +13,4 @@ SELECT
 FROM {{ source('olist_data', 'olist_orders') }}
 WHERE order_status != 'unavailable'  -- Filter test orders
   AND order_purchase_timestamp IS NOT NULL
+  {{ build_until('order_purchase_timestamp') }}
