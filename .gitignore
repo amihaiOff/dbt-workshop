@@ -1,3 +1,4 @@
 target/
 logs/
 dbt_utils/
+.user.yml

@@ -242,12 +242,12 @@ sources:
   - name: olist_data
     schema: olist_data
     tables:
-      - name: orders
+      - name: olist_orders
         columns:
           - name: order_id
             description: Primary key</pre>
         
-        <p>Use in SQL: <code>{{ source('olist_data', 'orders') }}</code></p>
+        <p>Use in SQL: <code>{{ source('olist_data', 'olist_orders') }}</code></p>
         
         <h4>2. Refs - Referencing dbt Models</h4>
         <p>Use <code>{{ ref('model_name') }}</code> to reference other dbt models. This creates dependencies in the DAG.</p>
@@ -338,19 +338,19 @@ sources:
   - name: olist_data
     schema: olist_data
     tables:
-      - name: olist_orders_dataset
+      - name: olist_orders
         columns:
           - name: order_id
             description: Unique order identifier
-      - name: olist_customers_dataset
+      - name: olist_customers
         columns:
           - name: customer_id
             description: Unique customer identifier
-      - name: olist_order_items_dataset
+      - name: olist_order_items
         columns:
           - name: order_id
             description: Order identifier
-      - name: olist_order_payments_dataset
+      - name: olist_order_payments
         columns:
           - name: order_id
             description: Order identifier</pre>
@@ -369,7 +369,7 @@ SELECT
     order_delivered_customer_date::timestamp as order_delivered_customer_date,
     order_estimated_delivery_date::timestamp as order_estimated_delivery_date,
     DATE(order_purchase_timestamp) as order_date
-FROM {{ source('olist_data', 'olist_orders_dataset') }}
+FROM {{ source('olist_data', 'olist_orders') }}
 WHERE order_status != 'unavailable'  -- Filter test orders
   AND order_purchase_timestamp IS NOT NULL</pre>
             
@@ -383,7 +383,7 @@ SELECT
     customer_zip_code_prefix,
     customer_city,
     customer_state
-FROM {{ source('olist_data', 'olist_customers_dataset') }}
+FROM {{ source('olist_data', 'olist_customers') }}
 WHERE customer_id IS NOT NULL</pre>
             
             <h4>models/staging/stg_order_items.sql</h4>
@@ -398,7 +398,7 @@ SELECT
     shipping_limit_date::timestamp as shipping_limit_date,
     price::decimal(10,2) as price,
     freight_value::decimal(10,2) as freight_value
-FROM {{ source('olist_data', 'olist_order_items_dataset') }}
+FROM {{ source('olist_data', 'olist_order_items') }}
 WHERE order_id IS NOT NULL
   AND price > 0</pre>
             
@@ -412,7 +412,7 @@ SELECT
     payment_type,
     payment_installments::int as payment_installments,
     payment_value::decimal(10,2) as payment_value
-FROM {{ source('olist_data', 'olist_order_payments_dataset') }}
+FROM {{ source('olist_data', 'olist_order_payments') }}
 WHERE order_id IS NOT NULL
   AND payment_value > 0</pre>
             
@@ -654,7 +654,7 @@ SELECT
     f.feature_date,
     CASE 
         WHEN MIN(fo.order_date) IS NULL THEN 1  -- No future orders = churned
-        WHEN MIN(fo.order_date) - f.feature_date > 90 THEN 1  -- Gap > 90 days = churned
+        WHEN (MIN(fo.order_date) - f.feature_date) > INTERVAL '90 days' THEN 1 -- Gap > 90 days = churned
         ELSE 0  -- Active
     END as will_churn_90d
 FROM {{ ref('int_customer_daily_features') }} f
@@ -748,6 +748,17 @@ GROUP BY customer_id</pre>
         </ol>
     </div>
 
+    <div class="info-box">
+        <h4>📝 What does --full-refresh do?</h4>
+        <p>The <code>--full-refresh</code> flag forces dbt to completely rebuild a model from scratch, dropping and recreating the table. This is useful when:</p>
+        <ul>
+            <li>You've changed the model logic and need to recompute all historical data</li>
+            <li>You've added new columns that require recalculating existing rows</li>
+            <li>You're working with incremental models and need to reset them</li>
+        </ul>
+        <p>Without <code>--full-refresh</code>, dbt may only update new or changed data (for incremental models) or skip rebuilding if nothing changed.</p>
+    </div>
+
     <!-- Challenge 4 -->
     <div class="challenge-box">
         <h2>🎯 Challenge 4: Dynamic Feature Generation with Jinja</h2>
@@ -771,7 +782,7 @@ GROUP BY customer_id</pre>
         
         <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
         <div id="solution4" class="solution">
-            <h4>models/intermediate/int_customer_daily_features.sql (Updated)</h4>
+            <h4>models/intermediate/int_customer_daily_features.sql </h4>
             <pre>
 {{ config(materialized='table') }}
 
@@ -833,19 +844,19 @@ features AS (
         
         -- Rolling window features using Jinja
         {% for days in lookback_days %}
-        COALESCE(
-            SUM(dp.daily_payment_value) OVER (
+            COALESCE(
+                SUM(dp.daily_payment_value) OVER (
+                    PARTITION BY cd.customer_id 
+                    ORDER BY cd.feature_date 
+                    ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+                ), 0
+            ) as payment_{{ days }}d,
+            
+            COUNT(dp.order_date) OVER (
                 PARTITION BY cd.customer_id 
                 ORDER BY cd.feature_date 
                 ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-            ), 0
-        ) as payment_{{ days }}d,
-        
-        COUNT(dp.order_date) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
-            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-        ) as orders_{{ days }}d,
+            ) as orders_{{ days }}d,
         {% endfor %}
         
         -- Days since last order
