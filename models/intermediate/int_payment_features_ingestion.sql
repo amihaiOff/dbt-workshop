@@ -27,7 +27,7 @@ point_in_time_payments AS (
 )
 
 SELECT 
-    prediction_date as feature_date,
+    prediction_date as date,
     customer_id,
     COALESCE(orders_count, 0) as orders_count,
     COALESCE(total_payments, 0) as total_payments,

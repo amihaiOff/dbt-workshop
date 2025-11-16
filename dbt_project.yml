@@ -17,6 +17,6 @@ models:
 
 vars:
   lookback_days: [3, 7, 14]
-  max_feature_date: '2018-10-31'
+  max_date: '2018-10-31'
   churn_threshold_days: 90
   min_order_value: 10

@@ -1,13 +1,13 @@
 {{ config(
     materialized='incremental',
-    unique_key=['customer_id', 'feature_date'],
+    unique_key=['customer_id', 'date'],
     incremental_strategy='merge'
 ) }}
 
 WITH daily_payments AS (
     SELECT 
         o.customer_id,
-        DATE(o.order_purchase_timestamp) as feature_date,
+        DATE(o.order_purchase_timestamp) as date,
         COUNT(DISTINCT o.order_id) as orders_count,
         SUM(p.payment_value) as total_payments,
         AVG(p.payment_value) as avg_payment_value
@@ -19,7 +19,7 @@ WITH daily_payments AS (
     {% if is_incremental() %}
       -- LOOKBACK STRATEGY: Reprocess last 3 days to catch late payments
       AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(feature_date) - INTERVAL '3 days'
+        SELECT MAX(date) - INTERVAL '3 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -29,7 +29,7 @@ WITH daily_payments AS (
 
 SELECT 
     customer_id,
-    feature_date,
+    date,
     orders_count,
     total_payments,
     avg_payment_value,
