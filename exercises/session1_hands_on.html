@@ -138,12 +138,24 @@
         function toggleSolution(id) {
             var solution = document.getElementById(id);
             var button = event.target;
+            var arrow = document.getElementById(id + '-arrow');
+            
             if (solution.style.display === 'none' || solution.style.display === '') {
                 solution.style.display = 'block';
-                button.textContent = 'Hide Solution';
+                if (button.tagName === 'BUTTON') {
+                    button.textContent = 'Hide Solution';
+                }
+                if (arrow) {
+                    arrow.textContent = '▼';
+                }
             } else {
                 solution.style.display = 'none';
-                button.textContent = 'Show Solution';
+                if (button.tagName === 'BUTTON') {
+                    button.textContent = 'Show Solution';
+                }
+                if (arrow) {
+                    arrow.textContent = '▶';
+                }
             }
         }
     </script>
@@ -554,6 +566,36 @@ FROM first_orders</pre>
             <li>Calculate running totals</li>
         </ul>
         
+        <div class="info-box">
+            <h3 style="cursor: pointer; user-select: none;" onclick="toggleSolution('hints3')">
+                <span id="hints3-arrow">▶</span> 💡 Helpful Hints
+            </h3>
+            <div id="hints3" class="solution">
+                <h4>Hint 1: Creating Daily Rows with CROSS JOIN</h4>
+                <p><strong>The Challenge:</strong> You need one row per customer per day from their landing date onwards.</p>
+                <p><strong>The Technique:</strong> Use a CROSS JOIN between your customer landing table and the date spine. This creates a cartesian product (every customer × every date). Then filter to only keep dates that are on or after each customer's landing date.</p>
+                <p><strong>Key Point:</strong> CROSS JOIN creates all possible combinations. You'll then filter down to just the relevant date ranges for each customer.</p>
+                
+                <h4>Hint 2: Cumulative Sums with Window Functions</h4>
+                <p><strong>The Challenge:</strong> Calculate running totals of payments for each customer over time.</p>
+                <p><strong>The Technique:</strong> Use a window function with <code>SUM(...) OVER (...)</code> clause that includes:</p>
+                <ul>
+                    <li><code>PARTITION BY...</code> - Calculate separately for each customer</li>
+                    <li><code>ORDER BY...</code> - Process dates in chronological order</li>
+                    <li><code>ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code> - This is the magic! Sum from the very first row up to the current row</li>
+                </ul>
+                
+                <h4>Understanding ROWS BETWEEN:</h4>
+                <ul>
+                    <li><code>UNBOUNDED PRECEDING</code> means "start from the first row in this customer's partition"</li>
+                    <li><code>CURRENT ROW</code> means "go up to the current row we're processing"</li>
+                    <li>Together, this gives you "all history up to this date" for cumulative features</li>
+                </ul>
+                
+                <p><strong>Conceptual Example:</strong> For customer C001, on Jan 3rd, their cumulative total includes payments from Jan 1st + Jan 2nd + Jan 3rd. On Jan 4th, it includes Jan 1-4, and so on.</p>
+            </div>
+        </div>
+        
         <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
         <div id="solution3" class="solution">
             <h4>models/intermediate/int_customer_daily_features.sql</h4>
@@ -565,7 +607,7 @@ WITH customer_dates AS (
     SELECT 
         c.customer_id,
         c.landing_date,
-        d.date_day as feature_date
+        d.date_day as date
     FROM {{ ref('int_customer_landing') }} c
     CROSS JOIN (
         {{ dbt_utils.date_spine(
@@ -579,11 +621,12 @@ WITH customer_dates AS (
 ),
 
 daily_payments AS (
-    -- Calculate daily payment totals
+    -- Calculate daily payment totals per customer
     SELECT
         o.customer_id,
         DATE(o.order_purchase_timestamp) as order_date,
-        SUM(p.payment_value) as daily_payment_value
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
     FROM {{ ref('stg_orders') }} o
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
@@ -593,28 +636,30 @@ daily_payments AS (
 
 SELECT
     cd.customer_id,
-    cd.feature_date,
+    cd.date,
     cd.landing_date,
+    
     -- Cumulative payment value up to this date
-    COALESCE(
-        SUM(dp.daily_payment_value) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ), 0
-    ) as total_payment_value,
-    -- Days since landing
-    cd.feature_date - cd.landing_date as days_since_landing,
-    -- Count of orders up to this date
-    COUNT(dp.order_date) OVER (
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
         PARTITION BY cd.customer_id 
-        ORDER BY cd.feature_date 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_payment_value,
+    
+    -- Days since landing
+    cd.date - cd.landing_date as days_since_landing,
+    
+    -- Cumulative order count
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) as total_orders
+    
 FROM customer_dates cd
 LEFT JOIN daily_payments dp
     ON cd.customer_id = dp.customer_id
-    AND cd.feature_date >= dp.order_date</pre>
+    AND cd.date = dp.order_date</pre>
             
             <p><strong>Run the model:</strong></p>
             <pre>dbt run --select int_customer_daily_features</pre>
@@ -651,17 +696,17 @@ WITH future_orders AS (
 
 SELECT 
     f.customer_id,
-    f.feature_date,
+    f.date,
     CASE 
         WHEN MIN(fo.order_date) IS NULL THEN 1  -- No future orders = churned
-        WHEN (MIN(fo.order_date) - f.feature_date) > INTERVAL '90 days' THEN 1 -- Gap > 90 days = churned
+        WHEN (MIN(fo.order_date) - f.date) > INTERVAL '90 days' THEN 1 -- Gap > 90 days = churned
         ELSE 0  -- Active
     END as will_churn_90d
 FROM {{ ref('int_customer_daily_features') }} f
 LEFT JOIN future_orders fo
     ON f.customer_id = fo.customer_id
-    AND fo.order_date > f.feature_date
-    AND fo.order_date <= f.feature_date + INTERVAL '90 days'
+    AND fo.order_date > f.date
+    AND fo.order_date <= f.date + INTERVAL '90 days'
 GROUP BY 1, 2</pre>
             </div>
         </div>
@@ -731,7 +776,7 @@ GROUP BY customer_id</pre>
 
 -- For Loops
 {% for days in [3, 7, 14, 30] %}
-    SUM(CASE WHEN order_date >= feature_date - {{ days }} THEN payment_value END) 
+    SUM(CASE WHEN order_date >= date - {{ days }} THEN payment_value END) 
         as payment_{{ days }}d,
 {% endfor %}
 
@@ -793,7 +838,7 @@ WITH customer_dates AS (
     SELECT 
         c.customer_id,
         c.landing_date,
-        d.date_day as feature_date
+        d.date_day as date
     FROM {{ ref('int_customer_landing') }} c
     CROSS JOIN (
         {{ dbt_utils.date_spine(
@@ -807,10 +852,12 @@ WITH customer_dates AS (
 ),
 
 daily_payments AS (
+    -- Calculate daily payment totals per customer
     SELECT
         o.customer_id,
         DATE(o.order_purchase_timestamp) as order_date,
-        SUM(p.payment_value) as daily_payment_value
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
     FROM {{ ref('stg_orders') }} o
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
@@ -821,55 +868,45 @@ daily_payments AS (
 features AS (
     SELECT
         cd.customer_id,
-        cd.feature_date,
+        cd.date,
         cd.landing_date,
-        -- Cumulative features
-        COALESCE(
-            SUM(dp.daily_payment_value) OVER (
-                PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-            ), 0
+        
+        -- Cumulative payment value
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) as total_payment_value,
         
         -- Days since landing
-        cd.feature_date - cd.landing_date as days_since_landing,
+        cd.date - cd.landing_date as days_since_landing,
         
-        -- Total orders
-        COUNT(dp.order_date) OVER (
+        -- Cumulative order count
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
             PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
+            ORDER BY cd.date 
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) as total_orders,
         
         -- Rolling window features using Jinja
         {% for days in lookback_days %}
-            COALESCE(
-                SUM(dp.daily_payment_value) OVER (
-                    PARTITION BY cd.customer_id 
-                    ORDER BY cd.feature_date 
-                    ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-                ), 0
-            ) as payment_{{ days }}d,
-            
-            COUNT(dp.order_date) OVER (
-                PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
-                ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-            ) as orders_{{ days }}d,
-        {% endfor %}
-        
-        -- Days since last order
-        cd.feature_date - MAX(dp.order_date) OVER (
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
             PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) as days_since_last_order
+            ORDER BY cd.date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+        ) as payment_{{ days }}d,
+        
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+        ) as orders_{{ days }}d{% if not loop.last %},{% endif %}
+        {% endfor %}
         
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
         ON cd.customer_id = dp.customer_id
-        AND cd.feature_date >= dp.order_date
+        AND cd.date = dp.order_date
 )
 
 SELECT * FROM features</pre>
@@ -886,79 +923,6 @@ SELECT * FROM features</pre>
                 <li>Standard deviation of payments</li>
                 <li>Max/Min payment in each window</li>
                 <li>Trend (compare 7d vs 14d averages)</li>
-            </ul>
-        </div>
-    </div>
-
-    <!-- Model Building Competition -->
-    <div class="info-box">
-        <h2>🏆 Optional Model Building Competition</h2>
-        
-        <h3>The Challenge:</h3>
-        <p>Who can build the best customer churn prediction model using ONLY features generated through dbt?</p>
-        
-        <h4>Rules:</h4>
-        <ul>
-            <li><strong>Features Only:</strong> Use only data generated from your dbt models</li>
-            <li><strong>Fair Comparison:</strong> Same dataset, same target variable (90-day churn)</li>
-            <li><strong>Training Period:</strong> Use data up to 2018-08-01 for training</li>
-            <li><strong>Test Period:</strong> Evaluate on 2018-08-02 to 2018-10-31</li>
-        </ul>
-        
-        <h4>Scoring Metrics:</h4>
-        <ul>
-            <li><strong>Primary:</strong> AUC-ROC (Area Under Curve)</li>
-            <li><strong>Secondary:</strong> Precision at 10% recall (actionable predictions)</li>
-            <li><strong>Bonus Points:</strong> Creative feature engineering with dbt</li>
-        </ul>
-        
-        <h4>Sample Training Code:</h4>
-        <pre>
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score
-
-# Load your dbt-generated features
-query = """
-SELECT customer_id, feature_date, 
-       total_payment_value, days_since_landing, 
-       payment_3d, payment_7d, payment_14d,
-       will_churn_90d
-FROM int_customer_labels l
-JOIN int_customer_daily_features f USING (customer_id, feature_date)
-WHERE feature_date <= '2018-08-01'
-  AND will_churn_90d IS NOT NULL
-"""
-
-df_train = pd.read_sql(query, connection)
-features = ['total_payment_value', 'days_since_landing', 'payment_3d', 'payment_7d', 'payment_14d']
-
-X_train = df_train[features]
-y_train = df_train['will_churn_90d']
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-
-# Evaluate on test set...
-print(f"Training AUC: {roc_auc_score(y_train, model.predict_proba(X_train)[:, 1]):.3f}")
-</pre>
-        
-        <h4>Ideas for Advanced Features:</h4>
-        <ul>
-            <li>Seasonality patterns (month of year, day of week effects)</li>
-            <li>Customer lifecycle stages (new, growing, mature, declining)</li>
-            <li>Product diversity metrics (number of categories purchased)</li>
-            <li>Payment behavior patterns (installment usage, payment method preferences)</li>
-            <li>Recency, Frequency, Monetary (RFM) scores</li>
-        </ul>
-        
-        <div class="warning-box">
-            <strong>Competition Guidelines:</strong>
-            <ul>
-                <li>Share your dbt models and final AUC score</li>
-                <li>Document interesting patterns you discovered</li>
-                <li>Focus on production-ready feature engineering practices</li>
-                <li>Consider feature interpretability and business value</li>
             </ul>
         </div>
     </div>
