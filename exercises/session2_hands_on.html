@@ -359,7 +359,7 @@ dbt run --vars '{lookback_days: [7, 14, 30], churn_threshold: 120}'
 # Add this to your dbt_project.yml
 vars:
   lookback_days: [3, 7, 14]
-  max_feature_date: '2018-10-31'
+  max_date: '2018-10-31'
   churn_threshold_days: 90
   min_order_value: 10</pre>
             
@@ -369,19 +369,19 @@ vars:
 
 -- Use variables with hierarchy demonstration
 {% set lookback_days = var('lookback_days') %}
-{% set max_feature_date = var('max_feature_date') %}
+{% set max_date = var('max_date') %}
 {% set min_order_value = var('min_order_value', 0) %}
 
 -- Log variable values to see what's being used
 {{ log("Using lookback_days: " ~ lookback_days, info=True) }}
-{{ log("Max feature date: " ~ max_feature_date, info=True) }}
+{{ log("Max feature date: " ~ max_date, info=True) }}
 {{ log("Min order value: " ~ min_order_value, info=True) }}
 
 WITH customer_dates AS (
     SELECT 
         c.customer_id,
         c.landing_date,
-        d.date_day as feature_date
+        d.date_day as date
     FROM {{ ref('int_customer_landing') }} c
     CROSS JOIN (
         {{ dbt_utils.date_spine(
@@ -391,14 +391,15 @@ WITH customer_dates AS (
         ) }}
     ) d
     WHERE d.date_day >= c.landing_date
-      AND d.date_day <= '{{ max_feature_date }}'::date
+      AND d.date_day <= '{{ max_date }}'::date
 ),
 
 daily_payments AS (
     SELECT
         o.customer_id,
         DATE(o.order_purchase_timestamp) as order_date,
-        SUM(p.payment_value) as daily_payment_value
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
     FROM {{ ref('stg_orders') }} o
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
@@ -410,47 +411,38 @@ daily_payments AS (
 features AS (
     SELECT
         cd.customer_id,
-        cd.feature_date,
+        cd.date,
         cd.landing_date,
         
-        -- Cumulative features
-        COALESCE(
-            SUM(dp.daily_payment_value) OVER (
-                PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-            ), 0
+        -- Cumulative payment value
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) as total_payment_value,
         
         -- Dynamic rolling window features
         {% for days in lookback_days %}
-        COALESCE(
-            SUM(dp.daily_payment_value) OVER (
-                PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
-                ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-            ), 0
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
         ) as payment_{{ days }}d,
         
-        COUNT(dp.order_date) OVER (
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
             PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
+            ORDER BY cd.date 
             ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
         ) as orders_{{ days }}d,
         {% endfor %}
         
         -- Days metrics
-        cd.feature_date - cd.landing_date as days_since_landing,
-        cd.feature_date - MAX(dp.order_date) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) as days_since_last_order
+        cd.date - cd.landing_date as days_since_landing
         
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
         ON cd.customer_id = dp.customer_id
-        AND cd.feature_date >= dp.order_date
+        AND cd.date = dp.order_date
 )
 
 SELECT * FROM features</pre>
@@ -466,8 +458,8 @@ dbt run --select int_customer_daily_features --vars '{lookback_days: [1, 5, 10]}
 # Check logs - should show [1, 5, 10] for lookback_days
 
 # Test 3: Partial override
-dbt run --select int_customer_daily_features --vars '{max_feature_date: "2018-06-30"}'
-# lookback_days should come from project, max_feature_date from command line
+dbt run --select int_customer_daily_features --vars '{max_date: "2018-06-30"}'
+# lookback_days should come from project, max_date from command line
 
 # Test 4: See compiled SQL differences
 dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
@@ -520,7 +512,7 @@ dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
 -- macros/get_payment_metrics.sql
 {% macro get_payment_metrics(days) %}
     SUM(CASE 
-        WHEN order_date >= feature_date - {{ days }} 
+        WHEN order_date >= date - {{ days }} 
         THEN payment_value 
     END) as payment_{{ days }}d
 {% endmacro %}</pre>
@@ -799,19 +791,19 @@ cat target/compiled/your_project/models/staging/stg_orders.sql</pre>
             <pre>
 {{ config(
     materialized='incremental',
-    unique_key=['customer_id', 'feature_date'],
+    unique_key=['customer_id', 'date'],
     incremental_strategy='merge'
 ) }}
 
 -- Use variables with hierarchy demonstration
 {% set lookback_days = var('lookback_days', [3, 7, 14]) %}
-{% set max_feature_date = var('max_feature_date', '2018-10-31') %}
+{% set max_date = var('max_date', '2018-10-31') %}
 
 WITH customer_dates AS (
     SELECT 
         c.customer_id,
         c.landing_date,
-        d.date_day as feature_date
+        d.date_day as date
     FROM {{ ref('int_customer_landing') }} c
     CROSS JOIN (
         {{ dbt_utils.date_spine(
@@ -821,12 +813,12 @@ WITH customer_dates AS (
         ) }}
     ) d
     WHERE d.date_day >= c.landing_date
-      AND d.date_day <= '{{ max_feature_date }}'::date
+      AND d.date_day <= '{{ max_date }}'::date
       
     {% if is_incremental() %}
       -- Only process recent feature dates for incremental runs
       AND d.date_day >= (
-        SELECT MAX(feature_date) - INTERVAL '7 days'
+        SELECT MAX(date) - INTERVAL '7 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -836,7 +828,8 @@ daily_payments AS (
     SELECT
         o.customer_id,
         DATE(o.order_purchase_timestamp) as order_date,
-        SUM(p.payment_value) as daily_payment_value
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
     FROM {{ ref('stg_orders') }} o
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
@@ -845,7 +838,7 @@ daily_payments AS (
     {% if is_incremental() %}
       -- Look back for late-arriving data
       AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(feature_date) - INTERVAL '14 days'
+        SELECT MAX(date) - INTERVAL '14 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -856,47 +849,38 @@ daily_payments AS (
 features AS (
     SELECT
         cd.customer_id,
-        cd.feature_date,
+        cd.date,
         cd.landing_date,
         
-        -- Cumulative features (computed in window)
-        COALESCE(
-            SUM(dp.daily_payment_value) OVER (
-                PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-            ), 0
+        -- Cumulative payment value
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) as total_payment_value,
         
         -- Dynamic rolling window features
         {% for days in lookback_days %}
-        COALESCE(
-            SUM(dp.daily_payment_value) OVER (
-                PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
-                ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-            ), 0
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
         ) as payment_{{ days }}d,
         
-        COUNT(dp.order_date) OVER (
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
             PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
+            ORDER BY cd.date 
             ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
         ) as orders_{{ days }}d,
         {% endfor %}
         
         -- Days metrics
-        cd.feature_date - cd.landing_date as days_since_landing,
-        cd.feature_date - MAX(dp.order_date) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) as days_since_last_order
+        cd.date - cd.landing_date as days_since_landing
         
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
         ON cd.customer_id = dp.customer_id
-        AND cd.feature_date >= dp.order_date
+        AND cd.date = dp.order_date
 )
 
 SELECT * FROM features</pre>
@@ -905,10 +889,10 @@ SELECT * FROM features</pre>
             <pre>
 # STEP 1: Full refresh with limited data (January 2017)
 dbt run --select int_customer_daily_features --full-refresh \
-  --vars '{max_feature_date: "2017-01-31"}'
+  --vars '{max_date: "2017-01-31"}'
 
 # Check what was built:
-# SELECT MIN(feature_date), MAX(feature_date), COUNT(*)
+# SELECT MIN(date), MAX(date), COUNT(*)
 # FROM int_customer_daily_features;
 
 # STEP 2: Check the compiled SQL (CREATE TABLE)
@@ -917,13 +901,13 @@ cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.
 
 # STEP 3: Full refresh with more data (February 2017)
 dbt run --select int_customer_daily_features --full-refresh \
-  --vars '{max_feature_date: "2017-02-28"}'
+  --vars '{max_date: "2017-02-28"}'
 
 # Verify more data was added
 
 # STEP 4: Now test incremental behavior (March 2017)
 dbt run --select int_customer_daily_features \
-  --vars '{max_feature_date: "2017-03-31"}'
+  --vars '{max_date: "2017-03-31"}'
 
 # STEP 5: Check the incremental SQL (MERGE statement)
 cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
@@ -952,11 +936,11 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
             <p><strong>Validate the Magic Happened:</strong></p>
             <pre>
 # After incremental run, check the lookback logic worked:
-# SELECT feature_date, COUNT(*)
+# SELECT date, COUNT(*)
 # FROM int_customer_daily_features
-# WHERE feature_date >= '2017-02-15'  -- Should see lookback data
-# GROUP BY feature_date
-# ORDER BY feature_date;
+# WHERE date >= '2017-02-15'  -- Should see lookback data
+# GROUP BY date
+# ORDER BY date;
 </pre>
         </div>
         
@@ -1004,14 +988,14 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
             <pre>
 {{ config(
     materialized='incremental',
-    unique_key=['customer_id', 'feature_date'],
+    unique_key=['customer_id', 'date'],
     incremental_strategy='merge'
 ) }}
 
 WITH daily_payments AS (
     SELECT 
         o.customer_id,
-        DATE(o.order_purchase_timestamp) as feature_date,
+        DATE(o.order_purchase_timestamp) as date,
         COUNT(DISTINCT o.order_id) as orders_count,
         SUM(p.payment_value) as total_payments,
         AVG(p.payment_value) as avg_payment_value
@@ -1023,7 +1007,7 @@ WITH daily_payments AS (
     {% if is_incremental() %}
       -- LOOKBACK STRATEGY: Reprocess last 3 days to catch late payments
       AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(feature_date) - INTERVAL '3 days'
+        SELECT MAX(date) - INTERVAL '3 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -1033,7 +1017,7 @@ WITH daily_payments AS (
 
 SELECT 
     customer_id,
-    feature_date,
+    date,
     orders_count,
     total_payments,
     avg_payment_value,
@@ -1112,7 +1096,7 @@ point_in_time_payments AS (
 )
 
 SELECT 
-    prediction_date as feature_date,
+    prediction_date as date,
     customer_id,
     COALESCE(orders_count, 0) as orders_count,
     COALESCE(total_payments, 0) as total_payments,
@@ -1128,7 +1112,7 @@ LEFT JOIN point_in_time_payments pit
 
 WITH lookback_method AS (
     SELECT 
-        feature_date,
+        date,
         customer_id,
         total_payments,
         'lookback_window' as method
@@ -1137,7 +1121,7 @@ WITH lookback_method AS (
 
 ingestion_method AS (
     SELECT 
-        feature_date,
+        date,
         customer_id,
         total_payments,
         'ingestion_time' as method
@@ -1146,26 +1130,26 @@ ingestion_method AS (
 
 comparison AS (
     SELECT 
-        COALESCE(l.feature_date, i.feature_date) as feature_date,
+        COALESCE(l.date, i.date) as date,
         COALESCE(l.customer_id, i.customer_id) as customer_id,
         COALESCE(l.total_payments, 0) as lookback_payments,
         COALESCE(i.total_payments, 0) as ingestion_payments,
         ABS(COALESCE(l.total_payments, 0) - COALESCE(i.total_payments, 0)) as difference
     FROM lookback_method l
     FULL OUTER JOIN ingestion_method i
-        ON l.feature_date = i.feature_date
+        ON l.date = i.date
         AND l.customer_id = i.customer_id
 )
 
 SELECT 
-    feature_date,
+    date,
     COUNT(*) as total_customers,
     AVG(difference) as avg_difference,
     MAX(difference) as max_difference,
     SUM(CASE WHEN difference > 0 THEN 1 ELSE 0 END) as customers_with_differences
 FROM comparison
-GROUP BY feature_date
-ORDER BY feature_date</pre>
+GROUP BY date
+ORDER BY date</pre>
             
             <h4>Test Both Approaches:</h4>
             <pre>

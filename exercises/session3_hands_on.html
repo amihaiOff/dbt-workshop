@@ -565,7 +565,7 @@ unit_tests:
     expect:
       rows:
         # Test specific date with known rolling window values
-        - {customer_id: "test_customer", feature_date: "2018-01-12", 
+        - {customer_id: "test_customer", date: "2018-01-12", 
            payment_7d: 350.00,   # orders on 2018-01-08 (200) + 2018-01-12 (150)
            payment_14d: 450.00,  # all 3 orders (100 + 200 + 150)
            orders_7d: 2,         # 2 orders in last 7 days
@@ -636,7 +636,7 @@ WHERE total_payment < 0</pre>
 WITH feature_validation AS (
     SELECT 
         f.customer_id,
-        f.feature_date,
+        f.date,
         f.orders_30d,
         f.payment_30d,
         
@@ -648,18 +648,18 @@ WITH feature_validation AS (
     LEFT JOIN {{ ref('stg_orders') }} o
         ON f.customer_id = o.customer_id
         AND date(o.order_purchase_timestamp) BETWEEN 
-            date(f.feature_date, '-30 days') AND f.feature_date
+            date(f.date, '-30 days') AND f.date
         AND o.order_status NOT IN ('canceled', 'unavailable')
     LEFT JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
-    WHERE f.feature_date >= date('now', '-7 days')  -- Only check recent features
+    WHERE f.date >= date('now', '-7 days')  -- Only check recent features
     GROUP BY 1, 2, 3, 4
 )
 
 -- Return mismatches (errors)
 SELECT 
     customer_id,
-    feature_date,
+    date,
     orders_30d as feature_orders,
     actual_orders_30d,
     ABS(orders_30d - actual_orders_30d) as order_difference,
@@ -675,26 +675,26 @@ WHERE ABS(orders_30d - actual_orders_30d) > 2  -- Allow small tolerance</pre>
 WITH customer_date_gaps AS (
     SELECT 
         customer_id,
-        feature_date,
-        LAG(feature_date) OVER (
+        date,
+        LAG(date) OVER (
             PARTITION BY customer_id 
-            ORDER BY feature_date
+            ORDER BY date
         ) as prev_date,
         -- Calculate days between consecutive dates
-        julianday(feature_date) - julianday(
-            LAG(feature_date) OVER (
+        julianday(date) - julianday(
+            LAG(date) OVER (
                 PARTITION BY customer_id 
-                ORDER BY feature_date
+                ORDER BY date
             )
         ) as days_gap
     FROM {{ ref('int_customer_daily_features') }}
-    WHERE feature_date >= date('now', '-30 days')  -- Check recent data
+    WHERE date >= date('now', '-30 days')  -- Check recent data
 )
 
 -- Return date gaps > 1 day (errors)
 SELECT 
     customer_id,
-    feature_date,
+    date,
     prev_date,
     days_gap,
     'Customer has ' || days_gap || ' day gap in feature history' as error_message
@@ -708,14 +708,14 @@ WHERE days_gap > 1.1  -- Allow small floating point errors</pre>
 
 SELECT 
     f.customer_id,
-    f.feature_date,
+    f.date,
     l.landing_date,
-    date(f.feature_date) - date(l.landing_date) as days_difference,
+    date(f.date) - date(l.landing_date) as days_difference,
     'Customer has features before landing date' as error_message
 FROM {{ ref('int_customer_daily_features') }} f
 INNER JOIN {{ ref('int_customer_landing') }} l
     ON f.customer_id = l.customer_id
-WHERE date(f.feature_date) < date(l.landing_date)</pre>
+WHERE date(f.date) < date(l.landing_date)</pre>
             
             <p><strong>Run custom tests:</strong></p>
             <pre>
@@ -1066,8 +1066,8 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
     measured_at TIMESTAMP,
     total_rows INTEGER,
     unique_customers INTEGER,
-    latest_feature_date DATE,
-    earliest_feature_date DATE,
+    latest_date DATE,
+    earliest_date DATE,
     avg_orders_30d REAL,
     max_orders_30d INTEGER,
     null_count INTEGER,
@@ -1079,7 +1079,7 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
             <pre>
 {{ config(
     materialized='incremental',
-    unique_key=['customer_id', 'feature_date'],
+    unique_key=['customer_id', 'date'],
     incremental_strategy='merge',
     
     pre_hook=[
@@ -1095,18 +1095,18 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
         -- Clean old data on full refresh to keep table size manageable
         "{% if not is_incremental() %}
            DELETE FROM {{ this }} 
-           WHERE feature_date < date('now', '-365 days')
+           WHERE date < date('now', '-365 days')
          {% endif %}"
     ],
     
     post_hook=[
         -- Create performance indexes
         "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_customer_date 
-         ON {{ this }} (customer_id, feature_date DESC)",
+         ON {{ this }} (customer_id, date DESC)",
         
         "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_date_range 
-         ON {{ this }} (feature_date) 
-         WHERE feature_date >= date('now', '-90 days')",
+         ON {{ this }} (date) 
+         WHERE date >= date('now', '-90 days')",
         
         -- Update table statistics for query optimizer
         "ANALYZE {{ this }}",
@@ -1118,8 +1118,8 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
            datetime('now') as measured_at,
            COUNT(*) as total_rows,
            COUNT(DISTINCT customer_id) as unique_customers,
-           MAX(feature_date) as latest_feature_date,
-           MIN(feature_date) as earliest_feature_date,
+           MAX(date) as latest_date,
+           MIN(date) as earliest_date,
            AVG(CAST(orders_30d AS REAL)) as avg_orders_30d,
            MAX(orders_30d) as max_orders_30d,
            SUM(CASE WHEN orders_30d IS NULL THEN 1 ELSE 0 END) as null_count,
@@ -1129,7 +1129,7 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
              ELSE 100.0 * (1.0 - CAST(SUM(CASE WHEN orders_30d IS NULL THEN 1 ELSE 0 END) AS REAL) / COUNT(*))
            END as data_quality_score
          FROM {{ this }}
-         WHERE feature_date >= date('now', '-7 days')",  -- Only recent data for quality metrics
+         WHERE date >= date('now', '-7 days')",  -- Only recent data for quality metrics
         
         -- Update execution completion log
         "UPDATE dbt_monitoring.model_execution_log 
@@ -1150,7 +1150,7 @@ WITH customer_dates AS (
     SELECT 
         c.customer_id,
         c.landing_date,
-        d.date_day as feature_date
+        d.date_day as date
     FROM {{ ref('int_customer_landing') }} c
     CROSS JOIN (
         {{ dbt_utils.date_spine(
@@ -1164,7 +1164,7 @@ WITH customer_dates AS (
       
     {% if is_incremental() %}
       AND d.date_day >= (
-        SELECT date(MAX(feature_date), '-7 days')
+        SELECT date(MAX(date), '-7 days')
         FROM {{ this }}
       )
     {% endif %}
@@ -1182,7 +1182,7 @@ daily_payments AS (
     
     {% if is_incremental() %}
       AND date(o.order_purchase_timestamp) >= (
-        SELECT date(MAX(feature_date), '-14 days')
+        SELECT date(MAX(date), '-14 days')
         FROM {{ this }}
       )
     {% endif %}
@@ -1193,14 +1193,14 @@ daily_payments AS (
 features AS (
     SELECT
         cd.customer_id,
-        cd.feature_date,
+        cd.date,
         cd.landing_date,
         
         -- Cumulative features
         COALESCE(
             SUM(dp.daily_payment_value) OVER (
                 PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
+                ORDER BY cd.date 
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
             ), 0
         ) as total_payment_value,
@@ -1210,25 +1210,25 @@ features AS (
         COALESCE(
             SUM(dp.daily_payment_value) OVER (
                 PARTITION BY cd.customer_id 
-                ORDER BY cd.feature_date 
+                ORDER BY cd.date 
                 ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
             ), 0
         ) as payment_{{ days }}d,
         
         COUNT(dp.order_date) OVER (
             PARTITION BY cd.customer_id 
-            ORDER BY cd.feature_date 
+            ORDER BY cd.date 
             ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
         ) as orders_{{ days }}d,
         {% endfor %}
         
         -- Days metrics
-        julianday(cd.feature_date) - julianday(cd.landing_date) as days_since_landing
+        julianday(cd.date) - julianday(cd.landing_date) as days_since_landing
         
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
         ON cd.customer_id = dp.customer_id
-        AND cd.feature_date >= dp.order_date
+        AND cd.date >= dp.order_date
 )
 
 SELECT * FROM features</pre>
@@ -1249,7 +1249,7 @@ SELECT
     measured_at,
     total_rows,
     unique_customers,
-    latest_feature_date,
+    latest_date,
     data_quality_score
 FROM dbt_monitoring.data_quality_metrics 
 WHERE model_name = 'int_customer_daily_features'
@@ -1304,7 +1304,7 @@ ORDER BY e.started_at DESC;</pre>
         MAX(orders_30d) as max_orders,
         COUNT(*) as sample_size
     FROM {{ this }}
-    WHERE feature_date = date('now', '-1 days')
+    WHERE date = date('now', '-1 days')
 ),
 historical_baseline AS (
     SELECT 
@@ -1429,14 +1429,14 @@ WITH latest_features AS (
     -- Get most recent features for each customer
     SELECT DISTINCT ON (customer_id)
         customer_id,
-        feature_date,
+        date,
         total_payment_value as customer_revenue,
         orders_7d,
         orders_30d as total_orders,
         days_since_last_order,
         landing_date
     FROM {{ ref('int_customer_daily_features') }}
-    ORDER BY customer_id, feature_date DESC
+    ORDER BY customer_id, date DESC
 ),
 
 customer_locations AS (
