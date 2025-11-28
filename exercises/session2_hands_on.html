@@ -935,12 +935,14 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
             
             <p><strong>Validate the Magic Happened:</strong></p>
             <pre>
-# After incremental run, check the lookback logic worked:
-# SELECT date, COUNT(*)
-# FROM int_customer_daily_features
-# WHERE date >= '2017-02-15'  -- Should see lookback data
-# GROUP BY date
-# ORDER BY date;
+-- After incremental run, check the lookback logic worked:
+ SELECT 
+    date, 
+    COUNT(*)
+ FROM int_customer_daily_features
+ WHERE date >= '2017-02-15'  -- Should see lookback data
+ GROUP BY date
+ ORDER BY date;
 </pre>
         </div>
         
@@ -1074,15 +1076,15 @@ dbt run --select stg_orders_with_ingestion --full-refresh
 # Build point-in-time correct features
 dbt run --select int_payment_features_ingestion
 
-# Verify point-in-time correctness in your database:
-# SELECT 
-#     date,
-#     customer_id,
-#     orders_count,
-#     total_payments
-# FROM int_payment_features_ingestion
-# ORDER BY date, customer_id
-# LIMIT 100;</pre>
+-- Verify point-in-time correctness in your database:
+ SELECT 
+    date,
+    customer_id,
+    orders_count,
+    total_payments
+ FROM int_payment_features_ingestion
+ ORDER BY date, customer_id
+ LIMIT 100;</pre>
             
             <div class="info-box">
                 <h3>📊 Key Benefits of Ingestion Time Tracking:</h3>

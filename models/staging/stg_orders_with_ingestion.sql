@@ -17,13 +17,13 @@ SELECT
     -- Simulate late arrival: some orders arrive 1-3 days after order_date
     CASE 
         WHEN order_id IN (
-            SELECT order_id FROM {{ source('olist_data', 'olist_orders_dataset') }}
+            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
             WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
         ) THEN order_purchase_timestamp + INTERVAL '2 days'
         ELSE order_purchase_timestamp + INTERVAL '1 hour'
     END as simulated_arrival_time
 
-FROM {{ source('olist_data', 'olist_orders_dataset') }}
+FROM {{ source('olist_data', 'olist_orders') }}
 
 WHERE order_status != 'unavailable'
   AND order_purchase_timestamp IS NOT NULL
