@@ -935,12 +935,14 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
             
             <p><strong>Validate the Magic Happened:</strong></p>
             <pre>
-# After incremental run, check the lookback logic worked:
-# SELECT date, COUNT(*)
-# FROM int_customer_daily_features
-# WHERE date >= '2017-02-15'  -- Should see lookback data
-# GROUP BY date
-# ORDER BY date;
+-- After incremental run, check the lookback logic worked:
+ SELECT 
+    date, 
+    COUNT(*)
+ FROM int_customer_daily_features
+ WHERE date >= '2017-02-15'  -- Should see lookback data
+ GROUP BY date
+ ORDER BY date;
 </pre>
         </div>
         
@@ -955,10 +957,10 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
         </div>
     </div>
 
-    <!-- Challenge 6: Late Arriving Events - DUAL SOLUTIONS -->
+    <!-- Challenge 6: Late Arriving Events - Ingestion Time Tracking -->
     <div class="challenge-box">
-        <h2>🎯 Challenge 6: Handle Late-Arriving Data (Two Approaches)</h2>
-        <p>Implement both solutions for late-arriving data discussed in today's presentation: lookback windows and ingestion time tracking.</p>
+        <h2>🎯 Challenge 6: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
+        <p>Implement ingestion time tracking for late-arriving data discussed in today's presentation.</p>
         
         <div class="info-box">
             <h3>📅 The Late Data Problem (from Session 2 Presentation)</h3>
@@ -966,65 +968,25 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
             <p><strong>The Risk:</strong> Training data includes all payments, but inference data is missing recent late arrivals.</p>
             <p><strong>The Result:</strong> Training/serving skew that degrades model performance.</p>
             
-            <p><strong>Two Solutions:</strong></p>
+            <p><strong>Solution: Ingestion Time Tracking</strong></p>
             <ul>
-                <li><strong>Solution 1:</strong> Lookback windows (simpler, 90% of cases)</li>
-                <li><strong>Solution 2:</strong> Ingestion time tracking (advanced, mission-critical systems)</li>
+                <li>Track when data arrives in your system (not just when events occurred)</li>
+                <li>Ensures point-in-time correctness for model training</li>
+                <li>Best for mission-critical systems requiring perfect accuracy</li>
             </ul>
         </div>
         
         <h3>Requirements:</h3>
         <ol>
-            <li>Implement both approaches side by side</li>
-            <li>Compare their trade-offs</li>
+            <li>Add ingestion time tracking to staging tables</li>
+            <li>Build point-in-time correct features</li>
             <li>Test with simulated late data</li>
-            <li>Understand when to use each approach</li>
+            <li>Verify point-in-time accuracy</li>
         </ol>
         
         <button class="solution-button" onclick="toggleSolution('solution6')">Show Solution</button>
         <div id="solution6" class="solution">
-            <h4>Solution 1: Lookback Window Approach (Merge Strategy)</h4>
-            <p><strong>models/intermediate/int_payment_features_lookback.sql</strong></p>
-            <pre>
-{{ config(
-    materialized='incremental',
-    unique_key=['customer_id', 'date'],
-    incremental_strategy='merge'
-) }}
-
-WITH daily_payments AS (
-    SELECT 
-        o.customer_id,
-        DATE(o.order_purchase_timestamp) as date,
-        COUNT(DISTINCT o.order_id) as orders_count,
-        SUM(p.payment_value) as total_payments,
-        AVG(p.payment_value) as avg_payment_value
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-    
-    {% if is_incremental() %}
-      -- LOOKBACK STRATEGY: Reprocess last 3 days to catch late payments
-      AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(date) - INTERVAL '3 days'
-        FROM {{ this }}
-      )
-    {% endif %}
-    
-    GROUP BY 1, 2
-)
-
-SELECT 
-    customer_id,
-    date,
-    orders_count,
-    total_payments,
-    avg_payment_value,
-    CURRENT_TIMESTAMP as processed_at
-FROM daily_payments</pre>
-            
-            <h4>Solution 2: Ingestion Time Tracking Approach</h4>
+            <h4>Step 1: Add Ingestion Time Tracking to Staging</h4>
             <p><strong>models/staging/stg_orders_with_ingestion.sql</strong></p>
             <pre>
 {{ config(
@@ -1038,7 +1000,7 @@ SELECT
     customer_id,
     order_status,
     order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    DATE(order_purchase_timestamp) as order_date,
+    DATE(order_purchase_timestamp::timestamp) as order_date,
     
     -- INGESTION TIME STRATEGY: Track when we received this data
     CURRENT_TIMESTAMP as ingestion_time,
@@ -1046,25 +1008,26 @@ SELECT
     -- Simulate late arrival: some orders arrive 1-3 days after order_date
     CASE 
         WHEN order_id IN (
-            SELECT order_id FROM {{ source('olist_data', 'olist_orders_dataset') }}
+            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
             WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
-        ) THEN order_purchase_timestamp + INTERVAL '2 days'
-        ELSE order_purchase_timestamp + INTERVAL '1 hour'
+        ) THEN order_purchase_timestamp::timestamp + INTERVAL '2 days'
+        ELSE order_purchase_timestamp::timestamp + INTERVAL '1 hour'
     END as simulated_arrival_time
 
-FROM {{ source('olist_data', 'olist_orders_dataset') }}
+FROM {{ source('olist_data', 'olist_orders') }}
 
 WHERE order_status != 'unavailable'
   AND order_purchase_timestamp IS NOT NULL
   
   {% if is_incremental() %}
     -- Only process recently arrived data
-    AND order_purchase_timestamp > (
+    AND order_purchase_timestamp::timestamp > (
         SELECT MAX(order_purchase_timestamp) - INTERVAL '1 day'
         FROM {{ this }}
     )
   {% endif %}</pre>
             
+            <h4>Step 2: Build Point-in-Time Correct Features</h4>
             <p><strong>models/intermediate/int_payment_features_ingestion.sql</strong></p>
             <pre>
 {{ config(materialized='table') }}
@@ -1105,96 +1068,54 @@ FROM prediction_dates pd
 LEFT JOIN point_in_time_payments pit
     ON pd.date_day = pit.prediction_date</pre>
             
-            <h4>Compare the Two Approaches:</h4>
-            <p><strong>models/analysis/compare_late_data_approaches.sql</strong></p>
+            <h4>Step 3: Test the Ingestion Time Tracking</h4>
             <pre>
-{{ config(materialized='table') }}
-
-WITH lookback_method AS (
-    SELECT 
-        date,
-        customer_id,
-        total_payments,
-        'lookback_window' as method
-    FROM {{ ref('int_payment_features_lookback') }}
-),
-
-ingestion_method AS (
-    SELECT 
-        date,
-        customer_id,
-        total_payments,
-        'ingestion_time' as method
-    FROM {{ ref('int_payment_features_ingestion') }}
-),
-
-comparison AS (
-    SELECT 
-        COALESCE(l.date, i.date) as date,
-        COALESCE(l.customer_id, i.customer_id) as customer_id,
-        COALESCE(l.total_payments, 0) as lookback_payments,
-        COALESCE(i.total_payments, 0) as ingestion_payments,
-        ABS(COALESCE(l.total_payments, 0) - COALESCE(i.total_payments, 0)) as difference
-    FROM lookback_method l
-    FULL OUTER JOIN ingestion_method i
-        ON l.date = i.date
-        AND l.customer_id = i.customer_id
-)
-
-SELECT 
-    date,
-    COUNT(*) as total_customers,
-    AVG(difference) as avg_difference,
-    MAX(difference) as max_difference,
-    SUM(CASE WHEN difference > 0 THEN 1 ELSE 0 END) as customers_with_differences
-FROM comparison
-GROUP BY date
-ORDER BY date</pre>
-            
-            <h4>Test Both Approaches:</h4>
-            <pre>
-# Step 1: Build base data
+# Build staging table with ingestion time tracking
 dbt run --select stg_orders_with_ingestion --full-refresh
 
-# Step 2: Test lookback approach
-dbt run --select int_payment_features_lookback --full-refresh
-
-# Step 3: Test ingestion time approach  
+# Build point-in-time correct features
 dbt run --select int_payment_features_ingestion
 
-# Step 4: Compare results
-dbt run --select compare_late_data_approaches
-
-# Step 5: Analyze differences
-# SELECT * FROM compare_late_data_approaches 
-# WHERE customers_with_differences > 0;</pre>
+-- Verify point-in-time correctness in your database:
+ SELECT 
+    date,
+    customer_id,
+    orders_count,
+    total_payments
+ FROM int_payment_features_ingestion
+ ORDER BY date, customer_id
+ LIMIT 100;</pre>
             
             <div class="info-box">
-                <h3>📊 Trade-offs Analysis:</h3>
+                <h3>📊 Key Benefits of Ingestion Time Tracking:</h3>
                 
-                <h4>Lookback Window (Merge Strategy):</h4>
                 <ul>
-                    <li><strong>Pros:</strong> Simple, fast, handles 95% of late data scenarios</li>
-                    <li><strong>Cons:</strong> Reprocesses some data, not 100% accurate</li>
-                    <li><strong>Best for:</strong> Most production systems, batch ML pipelines</li>
+                    <li><strong>Perfect Point-in-Time Accuracy:</strong> Features reflect exactly what data was available at prediction time</li>
+                    <li><strong>Eliminates Training/Serving Skew:</strong> Training and inference use the same data availability logic</li>
+                    <li><strong>Regulatory Compliance:</strong> Audit trail of when data entered the system</li>
+                    <li><strong>Late Data Visibility:</strong> Can measure and monitor data arrival patterns</li>
+                    <li><strong>Best for:</strong> Financial systems, high-stakes ML models, mission-critical applications</li>
                 </ul>
                 
-                <h4>Ingestion Time Tracking:</h4>
+                <p><strong>Important Considerations:</strong></p>
                 <ul>
-                    <li><strong>Pros:</strong> Perfect point-in-time accuracy, regulatory compliant</li>
-                    <li><strong>Cons:</strong> Complex, requires schema changes, more storage</li>
-                    <li><strong>Best for:</strong> Financial systems, high-stakes ML models</li>
+                    <li>Requires schema changes to add ingestion time columns</li>
+                    <li>More complex to implement than simple lookback windows</li>
+                    <li>May require additional storage for tracking metadata</li>
+                    <li>Worth the complexity when accuracy is critical</li>
                 </ul>
             </div>
         </div>
         
         <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Hybrid Approach</h3>
-            <p>Combine both methods:</p>
+            <h3>🌟 Optional Challenge: Enhanced Ingestion Time Tracking</h3>
+            <p>Extend the ingestion time tracking approach:</p>
             <ul>
-                <li>Use lookback windows for regular processing</li>
-                <li>Add ingestion time tracking for critical features</li>
-                <li>Build a macro that switches between approaches based on configuration</li>
+                <li>Add data freshness monitoring: track time between order_date and ingestion_time</li>
+                <li>Create alerts for unusually late data arrivals</li>
+                <li>Build a dashboard showing data arrival patterns over time</li>
+                <li>Add version tracking to handle data corrections and updates</li>
+                <li>Implement data quality checks at ingestion time</li>
             </ul>
         </div>
     </div>
@@ -1210,7 +1131,7 @@ dbt run --select compare_late_data_approaches
             <li>✅ Created reusable macros (RFM analysis!)</li>
             <li>✅ Built and tested incremental models properly</li>
             <li>✅ Implemented build control for testing</li>
-            <li>✅ Handled late-arriving data with two approaches</li>
+            <li>✅ Handled late-arriving data with ingestion time tracking</li>
         </ul>
         
         <h3>Key Concepts Mastered:</h3>
@@ -1219,7 +1140,7 @@ dbt run --select compare_late_data_approaches
             <li>Variable hierarchy (project → command line)</li>
             <li>Macro creation and reusability</li>
             <li>Incremental strategies and testing</li>
-            <li>Late-arriving data patterns (lookback vs ingestion time)</li>
+            <li>Late-arriving data patterns with ingestion time tracking</li>
             <li>Build timestamp control for testing</li>
         </ul>
         
@@ -1235,7 +1156,7 @@ dbt run --select compare_late_data_approaches
         <h3>Alignment with Session 2 Presentation:</h3>
         <ul>
             <li>✅ Addressed late-arriving data as the primary ML killer</li>
-            <li>✅ Implemented both presentation solutions (lookback + ingestion time)</li>
+            <li>✅ Implemented ingestion time tracking for late-arriving data</li>
             <li>✅ Demonstrated incremental strategies from the presentation</li>
             <li>✅ Added proper testing workflows for incremental models</li>
             <li>✅ Built point-in-time correctness into feature pipelines</li>
