@@ -651,93 +651,17 @@ dbt run --select int_customer_rfm_metrics --vars '{rfm_analysis_date: "2018-06-3
         </div>
     </div>
 
-    <!-- Challenge 4: Build Control with Macros (MOVED UP) -->
-    <div class="challenge-box">
-        <h2>🎯 Challenge 4: Build Control Timestamps Macro</h2>
-        <p>Create a macro that limits data processing to a specific timestamp - essential for testing incremental models properly.</p>
-        
-        <div class="info-box">
-            <h3>🔧 Why Build Control Matters for Testing</h3>
-            <p>When testing incremental models, you need to simulate how they process data over time. This macro lets you:</p>
-            <ul>
-                <li><strong>Step 1:</strong> Build with data up to date X</li>
-                <li><strong>Step 2:</strong> Build incrementally with data up to date Y</li>
-                <li><strong>Step 3:</strong> Verify only new data (X to Y) was processed</li>
-            </ul>
-            <p>Without this control, you can't properly test incremental behavior!</p>
-        </div>
-        
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Create macro <code>build_until()</code> that accepts a timestamp column and cutoff date</li>
-            <li>Use variables to pass the cutoff date</li>
-            <li>Apply to staging models for testing</li>
-            <li>Test incremental behavior step by step</li>
-        </ol>
-        
-        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
-        <div id="solution4" class="solution">
-            <h4>macros/build_until.sql</h4>
-            <pre>
-{% macro build_until(column_name, default_date='2999-12-31') %}
-    
-    {% set build_until_date = var('build_until_date', default_date) %}
-    
-    {% if execute %}
-        {{ log("🔧 Build Control: Limiting " ~ column_name ~ " to " ~ build_until_date, info=True) }}
-    {% endif %}
-    
-    AND {{ column_name }}::timestamp <= '{{ build_until_date }}'::timestamp
-    
-{% endmacro %}</pre>
-            
-            <h4>Apply to models/staging/stg_orders.sql (with build control)</h4>
-            <pre>
-{{ config(materialized='table') }}
-
-SELECT
-    order_id,
-    customer_id,
-    order_status,
-    order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    order_approved_at::timestamp as order_approved_at,
-    order_delivered_carrier_date::timestamp as order_delivered_carrier_date,
-    order_delivered_customer_date::timestamp as order_delivered_customer_date,
-    order_estimated_delivery_date::timestamp as order_estimated_delivery_date,
-    DATE(order_purchase_timestamp) as order_date
-
-FROM {{ source('olist_data', 'olist_orders_dataset') }}
-
-WHERE order_status != 'unavailable'
-  AND order_purchase_timestamp IS NOT NULL
-  
-  -- Apply build control macro
-  {{ build_until('order_purchase_timestamp') }}</pre>
-            
-            <h4>Test the Build Control Macro:</h4>
-            <pre>
-# Step 1: Build with limited data (January 2017 only)
-dbt run --select stg_orders --full-refresh --vars '{build_until_date: "2017-01-31"}'
-
-# Verify in database:
-# SELECT MIN(order_date), MAX(order_date), COUNT(*) FROM stg_orders;
-# Should show dates only up to 2017-01-31
-
-# Step 2: Extend the date range
-dbt run --select stg_orders --full-refresh --vars '{build_until_date: "2017-02-28"}'
-
-# Verify again - should now include February data
-
-# Step 3: Remove limit to get all data
-dbt run --select stg_orders --full-refresh
-
-# Check compiled SQL to see the difference
-cat target/compiled/your_project/models/staging/stg_orders.sql</pre>
-            
-            <div class="warning-box">
-                <strong>Important for Testing:</strong> This macro is essential for testing incremental models properly. You'll use it in the next challenge to simulate real-world data arrival patterns.
-            </div>
-        </div>
+    <div class="info-box">
+        <h4>📝 What does --full-refresh do?</h4>
+        <p>The <code>--full-refresh</code> flag forces dbt to completely rebuild a model from scratch, dropping and recreating the table. This is especially important for incremental models:</p>
+        <ul>
+            <li><strong>For Incremental Models:</strong> Rebuilds the entire table from scratch, ignoring incremental logic</li>
+            <li><strong>When Model Logic Changes:</strong> Recomputes all historical data with new logic</li>
+            <li><strong>When Adding Columns:</strong> Ensures new columns are calculated for all existing rows</li>
+            <li><strong>For Testing:</strong> Lets you reset and rebuild with controlled data subsets</li>
+        </ul>
+        <p><strong>Without --full-refresh:</strong> Incremental models only process new/changed data based on the <code>is_incremental()</code> logic.</p>
+        <p><strong>With --full-refresh:</strong> The model behaves like a regular table materialization, processing all data from scratch.</p>
     </div>
 
     <h2>📈 Incremental Models - The Production Game Changer</h2>
@@ -768,9 +692,9 @@ cat target/compiled/your_project/models/staging/stg_orders.sql</pre>
         </div>
     </div>
 
-    <!-- Challenge 5: Incremental Models (MOVED DOWN) -->
+    <!-- Challenge 4: Incremental Models -->
     <div class="challenge-box">
-        <h2>🎯 Challenge 5: Build and Test Incremental Models</h2>
+        <h2>🎯 Challenge 4: Build and Test Incremental Models</h2>
         <p>Convert your feature models to incremental and learn to test them properly using the build control macro from Challenge 4.</p>
         
         <h3>Requirements:</h3>
@@ -785,8 +709,8 @@ cat target/compiled/your_project/models/staging/stg_orders.sql</pre>
             <strong>💡 Reminder:</strong> The <code>{{ this }}</code> keyword in dbt refers to the current model's table in the database. When used inside an incremental model, it lets you query the existing table to find the maximum date or other metadata to determine what new data to process.
         </div>
         
-        <button class="solution-button" onclick="toggleSolution('solution5')">Show Solution</button>
-        <div id="solution5" class="solution">
+        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
+        <div id="solution4" class="solution">
             <h4>models/intermediate/int_customer_daily_features_inc.sql (Incremental Version)</h4>
             <pre>
 {{ config(
@@ -957,9 +881,9 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
         </div>
     </div>
 
-    <!-- Challenge 6: Late Arriving Events - Ingestion Time Tracking -->
+    <!-- Challenge 5: Late Arriving Events - Ingestion Time Tracking -->
     <div class="challenge-box">
-        <h2>🎯 Challenge 6: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
+        <h2>🎯 Challenge 5: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
         <p>Implement ingestion time tracking for late-arriving data discussed in today's presentation.</p>
         
         <div class="info-box">
@@ -984,8 +908,8 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
             <li>Verify point-in-time accuracy</li>
         </ol>
         
-        <button class="solution-button" onclick="toggleSolution('solution6')">Show Solution</button>
-        <div id="solution6" class="solution">
+        <button class="solution-button" onclick="toggleSolution('solution5')">Show Solution</button>
+        <div id="solution5" class="solution">
             <h4>Step 1: Add Ingestion Time Tracking to Staging</h4>
             <p><strong>models/staging/stg_orders_with_ingestion.sql</strong></p>
             <pre>

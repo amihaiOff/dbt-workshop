@@ -264,12 +264,54 @@ sources:
         <h4>2. Refs - Referencing dbt Models</h4>
         <p>Use <code>{{ ref('model_name') }}</code> to reference other dbt models. This creates dependencies in the DAG.</p>
         
-        <h4>3. Model Configuration</h4>
+        <h4>3. Model Configuration - Understanding {{ config() }}</h4>
         <pre>
 {{ config(
     materialized='table',  -- or 'view', 'incremental'
     schema='staging'       -- optional schema override
 ) }}</pre>
+        
+        <div class="warning-box">
+            <h4>⚙️ What does {{ config(materialized='table') }} do?</h4>
+            <p>This configuration line tells dbt <strong>how to materialize your model</strong> in the database. Think of it as choosing the output format for your SQL query.</p>
+            
+            <h4>Materialization Options:</h4>
+            <ul>
+                <li><strong>table</strong> - Creates a physical table in your database
+                    <ul>
+                        <li>✅ Fast query performance (data is pre-computed)</li>
+                        <li>✅ Best for models that are queried frequently</li>
+                        <li>❌ Takes up storage space</li>
+                        <li>❌ Takes time to rebuild on each run</li>
+                    </ul>
+                </li>
+                <li><strong>view</strong> - Creates a database view (virtual table)
+                    <ul>
+                        <li>✅ No storage space needed</li>
+                        <li>✅ Always shows fresh data</li>
+                        <li>❌ Slower query performance (computed on-the-fly)</li>
+                        <li>❌ Complex views can be very slow</li>
+                    </ul>
+                </li>
+                <li><strong>incremental</strong> - Only adds/updates changed data (covered in Session 2!)
+                    <ul>
+                        <li>✅ Efficient for large datasets</li>
+                        <li>✅ Only processes new/changed records</li>
+                        <li>⚠️ Requires more complex logic</li>
+                    </ul>
+                </li>
+            </ul>
+            
+            <h4>For This Workshop:</h4>
+            <p>📌 <strong>All solutions in this exercise use <code>{{ config(materialized='table') }}</code></strong> because:</p>
+            <ul>
+                <li>We're building feature tables that need to be queried quickly</li>
+                <li>Our feature engineering involves complex aggregations (better to compute once)</li>
+                <li>Tables make it easier to inspect and debug your results</li>
+            </ul>
+            
+            <p><strong>Important:</strong> Always add <code>{{ config(materialized='table') }}</code> at the top of your model files in the challenges below!</p>
+        </div>
         
         <h4>4. Running dbt Commands</h4>
         <ul>
@@ -281,42 +323,127 @@ sources:
         </ul>
     </div>
 
-    <h2>🌐 The Push Architecture Advantage</h2>
-    
+    <!-- Data Filtering Reference -->
     <div class="info-box">
-        <h3>Why Push Architecture Transforms ML Operations</h3>
+        <h3>📊 Data Filtering Reference</h3>
+        <p>Our staging models apply filters to ensure data quality. Here's a quick reference of what gets filtered:</p>
         
-        <p><strong>Traditional Pull Model (Pandas/Notebooks):</strong></p>
-        <pre>
-When prediction needed → Pull raw data → Compute features → Train/predict
-                       ↑ Slow, memory hungry, error-prone
-</pre>
-        
-        <p><strong>Push Model (dbt + Feature Tables):</strong></p>
-        <pre>
-Data arrives → dbt runs → Features pre-computed → Ready for use
-                       ↑ Fast, efficient, reliable
-</pre>
-        
-        <h4>Push Architecture Benefits:</h4>
-        <ul>
-            <li><strong>Features Ready When Needed:</strong> No waiting for computation at prediction time</li>
-            <li><strong>Compute Once, Use Many Times:</strong> Same features serve training, validation, inference</li>
-            <li><strong>Event-Driven Future:</strong> Natural progression to real-time feature updates</li>
-            <li><strong>Resource Optimization:</strong> Batch processing is much more efficient than on-demand</li>
-            <li><strong>Reliability:</strong> Features computed during stable batch windows, not under prediction pressure</li>
-        </ul>
-        
-        <h4>This Sets You Up For:</h4>
-        <ul>
-            <li>Event-driven feature updates (new order → update customer features)</li>
-            <li>Real-time serving from pre-computed features</li>
-            <li>Feature reuse across multiple models</li>
-            <li>Simplified monitoring and debugging</li>
-        </ul>
-        
-        <p><strong>Key Insight:</strong> Push architecture makes your ML system <em>reactive</em> rather than <em>reactive under pressure</em>. Features are always ready!</p>
-    </div>
+        <button class="solution-button" onclick="toggleSolution('filter_reference')">Show Filter Details</button>
+        <div id="filter_reference" class="solution">
+            <h4>Filters Applied in Staging Models</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Column</th>
+                        <th>Filter Condition</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>stg_orders</code></td>
+                        <td>order_status</td>
+                        <td>!= 'unavailable'</td>
+                        <td>Filter out test orders</td>
+                    </tr>
+                    <tr>
+                        <td><code>stg_orders</code></td>
+                        <td>order_purchase_timestamp</td>
+                        <td>IS NOT NULL</td>
+                        <td>Ensure valid order dates</td>
+                    </tr>
+                    <tr>
+                        <td><code>stg_order_payments</code></td>
+                        <td>order_id</td>
+                        <td>IS NOT NULL</td>
+                        <td>Ensure linkable payments</td>
+                    </tr>
+                    <tr>
+                        <td><code>stg_order_payments</code></td>
+                        <td>payment_value</td>
+                        <td>&gt; 0</td>
+                        <td>Exclude invalid payments</td>
+                    </tr>
+                    <tr>
+                        <td><code>stg_order_items</code></td>
+                        <td>order_id</td>
+                        <td>IS NOT NULL</td>
+                        <td>Ensure linkable items</td>
+                    </tr>
+                    <tr>
+                        <td><code>stg_order_items</code></td>
+                        <td>price</td>
+                        <td>&gt; 0</td>
+                        <td>Exclude invalid prices</td>
+                    </tr>
+                    <tr>
+                        <td><code>stg_customers</code></td>
+                        <td>customer_id</td>
+                        <td>IS NOT NULL</td>
+                        <td>Ensure valid customer records</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td colspan="4"><strong>Intermediate Tables</strong></td>
+                    </tr>
+                    <tr>
+                        <td><code>int_customer_landing</code></td>
+                        <td>order_status</td>
+                        <td>NOT IN ('canceled', 'unavailable')</td>
+                        <td>Only count successful orders for landing date</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_customer_daily_features</code></td>
+                        <td>order_status</td>
+                        <td>NOT IN ('canceled', 'unavailable')</td>
+                        <td>Only include successful orders in features</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_customer_daily_features</code></td>
+                        <td>payment_value</td>
+                        <td>&gt;= min_order_value (variable)</td>
+                        <td>Filter low-value orders (configurable)</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_customer_daily_features_inc</code></td>
+                        <td>order_status</td>
+                        <td>NOT IN ('canceled', 'unavailable')</td>
+                        <td>Only include successful orders in features</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_customer_labels</code></td>
+                        <td>order_status</td>
+                        <td>NOT IN ('canceled', 'unavailable')</td>
+                        <td>Only count successful orders for churn labels</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_payment_features_ingestion</code></td>
+                        <td>order_status</td>
+                        <td>NOT IN ('canceled', 'unavailable')</td>
+                        <td>Only include successful orders</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_payment_features_ingestion</code></td>
+                        <td>simulated_arrival_time</td>
+                        <td>&lt;= prediction_date + 1 day</td>
+                        <td>Point-in-time correctness: only use arrived data</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_payment_features_ingestion</code></td>
+                        <td>order_purchase_timestamp</td>
+                        <td>&lt;= prediction_date</td>
+                        <td>No future data leakage</td>
+                    </tr>
+                    <tr>
+                        <td><code>int_payment_features_lookback</code></td>
+                        <td>order_status</td>
+                        <td>NOT IN ('canceled', 'unavailable')</td>
+                        <td>Only include successful orders</td>
+                    </tr>
+                </tbody>
+            </table>
+          </div>
+      </div>
 
     <!-- Challenge 1 -->
     <div class="challenge-box">
@@ -791,17 +918,6 @@ GROUP BY customer_id</pre>
             <li>Check <code>target/run/</code> for executed SQL</li>
             <li>Use <code>dbt --debug run</code> for verbose output</li>
         </ol>
-    </div>
-
-    <div class="info-box">
-        <h4>📝 What does --full-refresh do?</h4>
-        <p>The <code>--full-refresh</code> flag forces dbt to completely rebuild a model from scratch, dropping and recreating the table. This is useful when:</p>
-        <ul>
-            <li>You've changed the model logic and need to recompute all historical data</li>
-            <li>You've added new columns that require recalculating existing rows</li>
-            <li>You're working with incremental models and need to reset them</li>
-        </ul>
-        <p>Without <code>--full-refresh</code>, dbt may only update new or changed data (for incremental models) or skip rebuilding if nothing changed.</p>
     </div>
 
     <!-- Challenge 4 -->
