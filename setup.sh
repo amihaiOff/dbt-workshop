@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Parse command line arguments
+RESET_MODE=false
+if [[ "${1:-}" == "--reset" ]] || [[ "${1:-}" == "-r" ]]; then
+    RESET_MODE=true
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -107,24 +113,57 @@ check_ports() {
     fi
 }
 
-# Stop and remove existing containers
-cleanup_existing() {
+# Check container status and start if needed
+check_and_start_containers() {
+    local containers_exist=false
+    local containers_running=false
+
+    # Check if containers exist
     if docker ps -a | grep -q "dbt-workshop"; then
-        print_info "Removing existing workshop containers..."
-        docker-compose down 2>/dev/null || true
-        print_success "Cleaned up existing containers"
+        containers_exist=true
+    fi
+
+    # Check if containers are running
+    if docker ps | grep -q "dbt-workshop"; then
+        containers_running=true
+    fi
+
+    if [ "$containers_running" = true ]; then
+        print_success "Workshop containers are already running"
+        print_info "Database state has been preserved from previous session"
+        return 0
+    elif [ "$containers_exist" = true ]; then
+        print_info "Found existing containers - starting them (database state will be preserved)..."
+        docker-compose start
+        print_success "Containers started with preserved database state"
+        return 0
+    else
+        print_info "No existing containers found - building and starting fresh..."
+        print_info "Building Docker images (this may take a few minutes on first run)..."
+        docker-compose build
+        print_success "Docker images built successfully"
+
+        print_info "Starting services (PostgreSQL + VS Code Server)..."
+        docker-compose up -d
+        print_success "Services started"
+        return 0
     fi
 }
 
-# Build and start containers
-start_services() {
-    print_info "Building Docker images (this may take a few minutes on first run)..."
-    docker-compose build
-    print_success "Docker images built successfully"
+# Reset database by removing volumes
+reset_database() {
+    print_warning "RESETTING DATABASE - All dbt changes and data will be lost!"
 
-    print_info "Starting services (PostgreSQL + VS Code Server)..."
-    docker-compose up -d
-    print_success "Services started"
+    read -p "Are you sure you want to reset the database? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_info "Reset cancelled"
+        exit 0
+    fi
+
+    print_info "Stopping services and removing database volumes..."
+    docker-compose down -v 2>/dev/null || true
+    print_success "Database volumes removed - fresh data will be loaded on restart"
 }
 
 # Wait for services to be healthy
@@ -209,19 +248,40 @@ show_info() {
 
 # Main execution
 main() {
-    print_header "DBT Workshop Setup"
+    if [ "$RESET_MODE" = true ]; then
+        print_header "DBT Workshop Database Reset"
 
-    print_info "Checking prerequisites..."
-    check_docker
-    check_docker_running
-    check_ports
+        print_info "Checking prerequisites..."
+        check_docker
+        check_docker_running
 
-    print_info "Setting up workshop environment..."
-    cleanup_existing
-    start_services
-    wait_for_services
+        reset_database
 
-    show_info
+        print_info "Starting services with fresh database..."
+        check_and_start_containers
+        wait_for_services
+
+        print_header "Database Reset Complete!"
+        echo "Your database has been reset to its original state."
+        echo "All dbt models, transformations, and changes have been removed."
+        echo ""
+        echo "VS Code Server: http://localhost:8080"
+        echo "Password: workshop"
+        echo ""
+    else
+        print_header "DBT Workshop Setup"
+
+        print_info "Checking prerequisites..."
+        check_docker
+        check_docker_running
+        check_ports
+
+        print_info "Setting up workshop environment..."
+        check_and_start_containers
+        wait_for_services
+
+        show_info
+    fi
 }
 
 # Run main function

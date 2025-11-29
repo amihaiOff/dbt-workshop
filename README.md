@@ -108,6 +108,142 @@ The PostgreSQL connection is **pre-configured and ready to use**:
 postgresql://dbt_user:dbt_password@localhost:5432/dbt_workshop
 ```
 
+## Using with Other IDEs (Cursor, VS Code Desktop, etc.)
+
+While this project includes a browser-based VS Code Server, you can use your preferred IDE like Cursor, VS Code Desktop, or any other editor to work with this dbt project.
+
+### Setup Steps
+
+1. **Start the PostgreSQL database**:
+   ```bash
+   docker-compose up -d postgres
+   ```
+   This starts only the PostgreSQL container on `localhost:5432`
+
+2. **Install dbt locally**:
+   ```bash
+   pip install dbt-core dbt-postgres
+   ```
+
+   *Optional: You can create a virtual environment for this project to isolate dependencies:*
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install dbt-core dbt-postgres
+   ```
+
+3. **Always run dbt from the project directory**:
+   ```bash
+   cd /path/to/dbt-workshop
+   dbt debug
+   dbt run
+   ```
+
+   **⚠️ IMPORTANT**: This project has its own `profiles.yml` file. Always run dbt commands from within the project directory, otherwise dbt will use your global `~/.dbt/profiles.yml` instead, which may conflict with your company's dbt configuration.
+
+4. **Test the connection**:
+   ```bash
+   cd /path/to/dbt-workshop
+   dbt debug
+   ```
+
+   You should see all checks pass and the connection test succeed.
+
+### IDE-Specific Setup
+
+**For Cursor or VS Code Desktop:**
+1. Open the `dbt-workshop` folder in your IDE
+2. Install recommended extensions:
+   - dbt Power User
+   - PostgreSQL client extension
+3. Configure the PostgreSQL extension to connect to the database:
+   - Host: `localhost`
+   - Port: `5432`
+   - Database: `dbt_workshop`
+   - Username: `dbt_user`
+   - Password: `dbt_password`
+
+### Working with dbt
+
+All dbt commands should be run from the project directory:
+
+```bash
+cd /path/to/dbt-workshop
+
+# Run all models
+dbt run
+
+# Run a specific model
+dbt run --select model_name
+
+# Test data quality
+dbt test
+
+# Generate documentation
+dbt docs generate
+dbt docs serve
+```
+
+### Important Notes
+
+- **Always work from the project directory** to ensure dbt uses the project's `profiles.yml`
+- **PostgreSQL must be running**: Ensure the database container is up (`docker-compose up -d postgres`)
+- **Host connection**: When connecting from your local machine, the `profiles.yml` defaults to `localhost` (the `postgres` hostname is only used inside Docker containers)
+- **Port 5432**: Make sure this port isn't already in use by another PostgreSQL instance
+
+### Stopping the Database
+
+When you're done:
+
+```bash
+# Stop PostgreSQL (keeps data)
+docker-compose stop postgres
+
+# Stop and remove everything (keeps data in volumes)
+docker-compose down
+
+# Remove all data
+docker-compose down -v
+```
+
+## Resetting the Database
+
+If you've made changes with dbt (created models, run transformations, etc.) and want to reset the database back to its original state with just the raw Olist data:
+
+```bash
+./setup.sh --reset
+```
+
+This command will:
+1. Ask for confirmation (type `y` to confirm)
+2. Stop all containers
+3. Remove the database volume (deletes all data including dbt changes)
+4. Restart containers with a fresh database
+5. Reload the original Olist dataset
+
+**When to use this:**
+- You've run `dbt run` and want to undo all transformations
+- You've modified data and want a clean slate
+- You want to restart exercises from scratch
+- Your database is in an inconsistent state
+
+**What gets reset:**
+- All dbt models in `olist_data` schema are removed
+- Any custom tables or views you created
+- The database returns to containing only the 9 original Olist tables
+
+**What is preserved:**
+- Your `.sql` model files in the `models/` directory
+- Your dbt project configuration
+- VS Code settings and extensions
+
+**Alternative quick reset:**
+You can also manually reset with:
+```bash
+docker-compose down -v  # Remove volumes
+docker-compose up -d    # Restart with fresh data
+```
+
 ## Using dbt
 
 Once inside VS Code Server terminal:

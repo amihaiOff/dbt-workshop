@@ -2,3 +2,5 @@ target/
 logs/
 dbt_utils/
 .user.yml
+.DS_Store
+package-lock.yml
