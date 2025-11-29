@@ -1,7 +1,67 @@
 {{ config(
     materialized='incremental',
     unique_key=['customer_id', 'date'],
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    
+    pre_hook=[
+        "-- Log execution start
+         INSERT INTO dbt_monitoring.model_execution_log 
+         (model_name, execution_type, started_at) 
+         VALUES (
+           '{{ this.name }}', 
+           '{% if is_incremental() %}incremental{% else %}full_refresh{% endif %}',
+           CURRENT_TIMESTAMP
+         )",
+        
+        "-- Clean old data on full refresh to keep table size manageable
+         {% if not is_incremental() %}
+           DELETE FROM {{ this }} 
+           WHERE date < CURRENT_DATE - INTERVAL '365 days'
+         {% endif %}"
+    ],
+    
+    post_hook=[
+        "-- Create performance indexes
+         CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_customer_date 
+         ON {{ this }} (customer_id, date DESC)",
+        
+        "-- Create index for date range queries
+         CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_date_range 
+         ON {{ this }} (date DESC)",
+        
+        "-- Update table statistics for query optimizer
+         ANALYZE {{ this }}",
+        
+        "-- Track comprehensive data quality metrics
+         INSERT INTO dbt_monitoring.data_quality_metrics 
+         (model_name, measured_at, total_rows, unique_customers, latest_date, earliest_date, 
+          avg_orders_30d, max_orders_30d, null_count, data_quality_score)
+         SELECT 
+           '{{ this.name }}' as model_name,
+           CURRENT_TIMESTAMP as measured_at,
+           COUNT(*) as total_rows,
+           COUNT(DISTINCT customer_id) as unique_customers,
+           MAX(date) as latest_date,
+           MIN(date) as earliest_date,
+           AVG(orders_14d::REAL) as avg_orders_30d,
+           MAX(orders_14d) as max_orders_30d,
+           SUM(CASE WHEN orders_14d IS NULL THEN 1 ELSE 0 END) as null_count,
+           CASE 
+             WHEN COUNT(*) = 0 THEN 0
+             ELSE 100.0 * (1.0 - SUM(CASE WHEN orders_14d IS NULL THEN 1 ELSE 0 END)::REAL / COUNT(*))
+           END as data_quality_score
+         FROM {{ this }}
+         WHERE date >= CURRENT_DATE - INTERVAL '7 days'",
+        
+        "-- Update execution completion log
+         UPDATE dbt_monitoring.model_execution_log 
+         SET 
+           completed_at = CURRENT_TIMESTAMP,
+           rows_processed = (SELECT COUNT(*) FROM {{ this }}),
+           execution_time_seconds = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - started_at))
+         WHERE model_name = '{{ this.name }}'
+           AND completed_at IS NULL"
+    ]
 ) }}
 
 -- Use variables with hierarchy demonstration

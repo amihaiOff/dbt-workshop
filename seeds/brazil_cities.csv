@@ -1,0 +1,16 @@
+city,state,region,population_tier,economic_zone,logistics_hub
+São Paulo,SP,Southeast,mega,primary,1
+Rio de Janeiro,RJ,Southeast,mega,primary,1
+Brasília,DF,Central-West,large,primary,1
+Salvador,BA,Northeast,large,secondary,1
+Fortaleza,CE,Northeast,large,secondary,1
+Belo Horizonte,MG,Southeast,large,secondary,1
+Manaus,AM,North,large,tertiary,1
+Curitiba,PR,South,large,secondary,1
+Recife,PE,Northeast,large,secondary,1
+Porto Alegre,RS,South,large,secondary,1
+Belém,PA,North,medium,tertiary,0
+Goiânia,GO,Central-West,medium,tertiary,0
+Guarulhos,SP,Southeast,medium,primary,1
+Campinas,SP,Southeast,medium,primary,1
+São Luís,MA,Northeast,medium,tertiary,0
