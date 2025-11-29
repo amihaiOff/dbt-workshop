@@ -681,26 +681,25 @@ dbt run --select int_customer_rfm_metrics --vars '{rfm_analysis_date: "2018-06-3
         <ol>
             <li><strong>Full Refresh + Limited Data:</strong> Build table with subset of data</li>
             <li><strong>Check Compiled SQL:</strong> Verify the CREATE TABLE statement</li>
-            <li><strong>Full Refresh + More Data:</strong> Rebuild with more data using build control macro</li>
+            <li><strong>Full Refresh + More Data:</strong> Rebuild with more data</li>
             <li><strong>Incremental Run:</strong> Run without --full-refresh</li>
             <li><strong>Check Incremental SQL:</strong> Verify the MERGE/INSERT statement</li>
             <li><strong>Validate Data:</strong> Ensure only new data was processed</li>
         </ol>
         
         <div class="warning-box">
-            <strong>Live Demo Alert!</strong> During class, we'll demonstrate this step-by-step process live, showing you exactly how to inspect the compiled SQL and validate incremental behavior.
+            <strong>Live Demo Alert!</strong> During class, we've demonstrated this step-by-step process live, showing you exactly how to inspect the compiled SQL and validate incremental behavior.
         </div>
     </div>
 
     <!-- Challenge 4: Incremental Models -->
     <div class="challenge-box">
         <h2>🎯 Challenge 4: Build and Test Incremental Models</h2>
-        <p>Convert your feature models to incremental and learn to test them properly using the build control macro from Challenge 4.</p>
+        <p>Convert your feature models to incremental and learn to test them properly.</p>
         
         <h3>Requirements:</h3>
         <ol>
             <li>Create a new incremental model <code>int_customer_daily_features_inc.sql</code> (similar to <code>int_customer_daily_features.sql</code> but with incremental logic)</li>
-            <li>Use the build control macro for testing</li>
             <li>Follow the proper testing workflow</li>
             <li>Verify incremental behavior</li>
         </ol>
@@ -812,29 +811,29 @@ SELECT * FROM features</pre>
             <h4>Proper Testing Workflow (Step by Step):</h4>
             <pre>
 # STEP 1: Full refresh with limited data (January 2017)
-dbt run --select int_customer_daily_features --full-refresh \
+dbt run --select int_customer_daily_features_inc --full-refresh \
   --vars '{max_date: "2017-01-31"}'
 
 # Check what was built:
 # SELECT MIN(date), MAX(date), COUNT(*)
-# FROM int_customer_daily_features;
+# FROM int_customer_daily_features_inc;
 
 # STEP 2: Check the compiled SQL (CREATE TABLE)
 cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
 # Should see CREATE TABLE statement, no is_incremental() logic
 
 # STEP 3: Full refresh with more data (February 2017)
-dbt run --select int_customer_daily_features --full-refresh \
+dbt run --select int_customer_daily_features_inc --full-refresh \
   --vars '{max_date: "2017-02-28"}'
 
 # Verify more data was added
 
 # STEP 4: Now test incremental behavior (March 2017)
-dbt run --select int_customer_daily_features \
+dbt run --select int_customer_daily_features_inc \
   --vars '{max_date: "2017-03-31"}'
 
 # STEP 5: Check the incremental SQL (MERGE statement)
-cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
+cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
 # Should see MERGE statement with incremental logic
 
 # STEP 6: Verify only new data was processed
@@ -863,7 +862,7 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
  SELECT 
     date, 
     COUNT(*)
- FROM int_customer_daily_features
+ FROM int_customer_daily_features_inc
  WHERE date >= '2017-02-15'  -- Should see lookback data
  GROUP BY date
  ORDER BY date;
@@ -902,15 +901,15 @@ cat target/run/your_project/models/intermediate/int_customer_daily_features.sql
         
         <h3>Requirements:</h3>
         <ol>
-            <li>Add ingestion time tracking to staging tables</li>
-            <li>Build point-in-time correct features</li>
+            <li>Create the provided staging model with ingestion time tracking (see below)</li>
+            <li>Build point-in-time correct features using the staging model</li>
             <li>Test with simulated late data</li>
             <li>Verify point-in-time accuracy</li>
         </ol>
         
-        <button class="solution-button" onclick="toggleSolution('solution5')">Show Solution</button>
-        <div id="solution5" class="solution">
-            <h4>Step 1: Add Ingestion Time Tracking to Staging</h4>
+        <div class="info-box">
+            <h4>📦 Provided Staging Model</h4>
+            <p>Create this file and run it first - we've provided it so you can focus on the feature engineering:</p>
             <p><strong>models/staging/stg_orders_with_ingestion.sql</strong></p>
             <pre>
 {{ config(
@@ -951,7 +950,13 @@ WHERE order_status != 'unavailable'
     )
   {% endif %}</pre>
             
-            <h4>Step 2: Build Point-in-Time Correct Features</h4>
+            <p><strong>Run this model first:</strong></p>
+            <pre>dbt run --select stg_orders_with_ingestion --full-refresh</pre>
+        </div>
+        
+        <button class="solution-button" onclick="toggleSolution('solution5')">Show Solution</button>
+        <div id="solution5" class="solution">
+            <h4>Build Point-in-Time Correct Features</h4>
             <p><strong>models/intermediate/int_payment_features_ingestion.sql</strong></p>
             <pre>
 {{ config(materialized='table') }}
@@ -992,11 +997,8 @@ FROM prediction_dates pd
 LEFT JOIN point_in_time_payments pit
     ON pd.date_day = pit.prediction_date</pre>
             
-            <h4>Step 3: Test the Ingestion Time Tracking</h4>
+            <h4>Test the Ingestion Time Tracking</h4>
             <pre>
-# Build staging table with ingestion time tracking
-dbt run --select stg_orders_with_ingestion --full-refresh
-
 # Build point-in-time correct features
 dbt run --select int_payment_features_ingestion
 
@@ -1054,7 +1056,6 @@ dbt run --select int_payment_features_ingestion
             <li>✅ Mastered dbt variable hierarchy and resolution</li>
             <li>✅ Created reusable macros (RFM analysis!)</li>
             <li>✅ Built and tested incremental models properly</li>
-            <li>✅ Implemented build control for testing</li>
             <li>✅ Handled late-arriving data with ingestion time tracking</li>
         </ul>
         
@@ -1065,7 +1066,6 @@ dbt run --select int_payment_features_ingestion
             <li>Macro creation and reusability</li>
             <li>Incremental strategies and testing</li>
             <li>Late-arriving data patterns with ingestion time tracking</li>
-            <li>Build timestamp control for testing</li>
         </ul>
         
         <h3>Production Readiness Achieved:</h3>
