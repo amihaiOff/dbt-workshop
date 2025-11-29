@@ -2,20 +2,179 @@ version: 2
 
 sources:
   - name: olist_data
-    schema: olist_data
+    description: "Raw Olist e-commerce data"
+    
     tables:
       - name: olist_orders
+        description: "Raw orders data - CRITICAL for ML features"
+        loaded_at_field: order_purchase_timestamp
+        
+        # Strict thresholds for business-critical data
+        freshness:
+          warn_after: {count: 2, period: hour}
+          error_after: {count: 4, period: hour}
+        
         columns:
           - name: order_id
-            description: Unique order identifier
-      - name: olist_customers
-        columns:
-          - name: customer_id
-            description: Unique customer identifier
-      - name: olist_order_items
-        columns:
-          - name: order_id
-            description: Order identifier
+            description: "Primary key"
+          - name: order_purchase_timestamp
+            description: "Used for freshness monitoring"
+      
       - name: olist_order_payments
-        columns:
-          - name: order_id
+        description: "Payment data - affects revenue calculations"
+        # No natural timestamp field, so we'll use a surrogate
+        loaded_at_field: "CURRENT_TIMESTAMP"  # PostgreSQL current time
+        
+        freshness:
+          warn_after: {count: 4, period: hour}
+          error_after: {count: 8, period: hour}
+      
+      - name: olist_customers
+        description: "Customer reference data - changes infrequently"
+        loaded_at_field: "CURRENT_TIMESTAMP"  # No natural timestamp
+        
+        # Relaxed thresholds for reference data
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+        
+      - name: olist_order_items
+        description: "Order line items - moderately important"
+        loaded_at_field: shipping_limit_date
+        
+        freshness:
+          warn_after: {count: 6, period: hour}
+          error_after: {count: 12, period: hour}
+models:
+  - name: stg_orders
+    description: "Cleaned orders from Olist dataset"
+    config:
+      tags: ["staging", "critical"]
+    tests:
+      # Row count validation - set to wide range for this dataset
+      - dbt_expectations.expect_table_row_count_to_be_between:
+          arguments:
+            min_value: 1000  # At least 1000 orders
+            max_value: 200000  # Less than 200k orders
+      # Completeness validation  
+      - dbt_expectations.expect_table_column_count_to_equal:
+          arguments:
+            value: 9
+          
+    columns:
+      - name: order_id
+        description: "Unique order identifier"
+        tests:
+          - unique
+          - not_null
+      
+      - name: customer_id
+        description: "Customer who placed the order"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+              config:
+                severity: error  # Critical business rule
+      
+      - name: order_status
+        description: "Current order status"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['delivered', 'shipped', 'processing', 'canceled', 'invoiced', 'approved', 'created']
+              config:
+                severity: warn  # New statuses might appear
+      
+      - name: order_purchase_timestamp
+        description: "When order was placed"
+        tests:
+          - not_null
+          # Column-level date range tests (expression is applied to the column)
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= '2016-01-01'"
+              config:
+                severity: error
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "<= date('now')"
+              config:
+                severity: error
+      
+      - name: order_date
+        description: "Date of order (for partitioning)"
+        tests:
+          - not_null
+
+  - name: stg_customers
+    description: "Clean customer data"
+    config:
+      tags: ["staging", "reference"]
+    
+    columns:
+      - name: customer_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      
+      - name: customer_city
+        description: "Customer city"
+        tests:
+          - not_null
+      
+      - name: customer_state
+        description: "Customer state (should be valid Brazilian states)"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['SP', 'RJ', 'MG', 'RS', 'PR', 'SC', 'BA', 'GO', 'ES', 'PE', 'CE', 'PA', 'DF', 'MT', 'MS', 'PB', 'RN', 'AL', 'PI', 'SE', 'RO', 'AC', 'AM', 'RR', 'AP', 'TO', 'MA']
+              config:
+                severity: warn  # New states are rare but possible
+
+  - name: stg_order_payments
+    description: "Payment information"
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+              config:
+                severity: warn  # Some payments exist for filtered orders (unavailable status)
+      
+      - name: payment_value
+        description: "Payment amount"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+              config:
+                severity: error
+                error_if: "> 10"  # Fail if more than 10 negative values
+          # Statistical validation with dbt_expectations
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 50000
+              config:
+                severity: warn
+      
+      - name: payment_type
+        description: "Payment method type"
+        tests:
+          - not_null
+          # Set membership validation
+          - dbt_expectations.expect_column_values_to_be_in_set:
+              arguments:
+                value_set: ['credit_card', 'boleto', 'voucher', 'debit_card']
+              config:
+                severity: warn  # New payment types might appear

@@ -1,0 +1,55 @@
+version: 2
+
+unit_tests:
+  - name: test_stg_orders_filtering_and_dates
+    description: "Test that orders are properly filtered and dates correctly derived"
+    model: stg_orders
+    
+    given:
+      - input: source('olist_data', 'olist_orders')
+        rows:
+          # Valid order - should appear in output
+          - {order_id: "valid_001", customer_id: "customer_001", order_status: "delivered", 
+             order_purchase_timestamp: "2018-01-15 10:30:00", order_approved_at: "2018-01-15 11:00:00"}
+             
+          # Unavailable order - should be filtered out
+          - {order_id: "invalid_001", customer_id: "customer_002", order_status: "unavailable", 
+             order_purchase_timestamp: "2018-01-16 11:00:00", order_approved_at: "2018-01-16 11:30:00"}
+             
+          # Null timestamp - should be filtered out
+          - {order_id: "invalid_002", customer_id: "customer_003", order_status: "shipped", 
+             order_purchase_timestamp: null, order_approved_at: "2018-01-17 12:00:00"}
+             
+          # Another valid order - should appear
+          - {order_id: "valid_002", customer_id: "customer_004", order_status: "processing", 
+             order_purchase_timestamp: "2018-01-20 14:15:30", order_approved_at: null}
+    
+    expect:
+      rows:
+        # Only valid orders should appear with proper date casting
+        - {order_id: "valid_001", customer_id: "customer_001", order_status: "delivered",
+           order_purchase_timestamp: "2018-01-15 10:30:00", order_date: "2018-01-15"}
+        - {order_id: "valid_002", customer_id: "customer_004", order_status: "processing",
+           order_purchase_timestamp: "2018-01-20 14:15:30", order_date: "2018-01-20"}
+
+  - name: test_stg_orders_edge_cases
+    description: "Test edge cases in order processing"
+    model: stg_orders
+    
+    given:
+      - input: source('olist_data', 'olist_orders')
+        rows:
+          # Edge case: very old order
+          - {order_id: "old_001", customer_id: "customer_old", order_status: "delivered", 
+             order_purchase_timestamp: "2015-12-31 23:59:59", order_approved_at: "2016-01-01 00:30:00"}
+             
+          # Edge case: future date (should still be included if not null)
+          - {order_id: "future_001", customer_id: "customer_future", order_status: "created", 
+             order_purchase_timestamp: "2025-01-01 10:00:00", order_approved_at: null}
+    
+    expect:
+      rows:
+        - {order_id: "old_001", customer_id: "customer_old", order_status: "delivered",
+           order_purchase_timestamp: "2015-12-31 23:59:59", order_date: "2015-12-31"}
+        - {order_id: "future_001", customer_id: "customer_future", order_status: "created",
+           order_purchase_timestamp: "2025-01-01 10:00:00", order_date: "2025-01-01"}
