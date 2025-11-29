@@ -637,22 +637,22 @@ WITH feature_validation AS (
     SELECT 
         f.customer_id,
         f.date,
-        f.orders_30d,
-        f.payment_30d,
+        f.orders_14d,
+        f.payment_14d,
         
-        -- Count actual orders in last 30 days from source
-        COUNT(DISTINCT o.order_id) as actual_orders_30d,
-        COALESCE(SUM(p.payment_value), 0) as actual_payment_30d
+        -- Count actual orders in last 14 days from source
+        COUNT(DISTINCT o.order_id) as actual_orders_14d,
+        COALESCE(SUM(p.payment_value), 0) as actual_payment_14d
         
     FROM {{ ref('int_customer_daily_features') }} f
     LEFT JOIN {{ ref('stg_orders') }} o
         ON f.customer_id = o.customer_id
-        AND date(o.order_purchase_timestamp) BETWEEN 
-            date(f.date, '-30 days') AND f.date
+        AND DATE(o.order_purchase_timestamp) BETWEEN 
+            f.date - INTERVAL '14 days' AND f.date
         AND o.order_status NOT IN ('canceled', 'unavailable')
     LEFT JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
-    WHERE f.date >= date('now', '-7 days')  -- Only check recent features
+    WHERE f.date >= CURRENT_DATE - INTERVAL '7 days'  -- Only check recent features
     GROUP BY 1, 2, 3, 4
 )
 
@@ -660,12 +660,12 @@ WITH feature_validation AS (
 SELECT 
     customer_id,
     date,
-    orders_30d as feature_orders,
-    actual_orders_30d,
-    ABS(orders_30d - actual_orders_30d) as order_difference,
+    orders_14d as feature_orders,
+    actual_orders_14d,
+    ABS(orders_14d - actual_orders_14d) as order_difference,
     'Feature vs actual order count mismatch' as error_type
 FROM feature_validation
-WHERE ABS(orders_30d - actual_orders_30d) > 2  -- Allow small tolerance</pre>
+WHERE ABS(orders_14d - actual_orders_14d) > 2  -- Allow small tolerance</pre>
 
             <h4>tests/assert_no_temporal_gaps.sql</h4>
             <pre>
@@ -701,22 +701,6 @@ SELECT
 FROM customer_date_gaps
 WHERE days_gap > 1.1  -- Allow small floating point errors</pre>
 
-            <h4>tests/assert_customer_lifecycle_logic.sql</h4>
-            <pre>
--- Validate that customer lifecycle logic is consistent
--- No customer should have features before their landing date
-
-SELECT 
-    f.customer_id,
-    f.date,
-    l.landing_date,
-    date(f.date) - date(l.landing_date) as days_difference,
-    'Customer has features before landing date' as error_message
-FROM {{ ref('int_customer_daily_features') }} f
-INNER JOIN {{ ref('int_customer_landing') }} l
-    ON f.customer_id = l.customer_id
-WHERE date(f.date) < date(l.landing_date)</pre>
-            
             <p><strong>Run custom tests:</strong></p>
             <pre>
 # Run all custom tests
@@ -750,21 +734,17 @@ dbt test --select assert_feature_consistency --store-failures
         
         <div class="info-box">
             <h3>📊 Which Tables to Test & Thresholds</h3>
-            <p><strong>Critical Tables (Strict Thresholds):</strong></p>
+            <p><strong>Critical Tables with Natural Timestamps:</strong></p>
             <ul>
-                <li><strong>olist_orders_dataset:</strong> Warn: 2 hours, Error: 4 hours (business critical)</li>
-                <li><strong>olist_order_payments_dataset:</strong> Warn: 4 hours, Error: 8 hours (affects revenue)</li>
+                <li><strong>olist_orders:</strong> Warn: 2 hours, Error: 4 hours (business critical, uses order_purchase_timestamp)</li>
+                <li><strong>olist_order_items:</strong> Warn: 6 hours, Error: 12 hours (moderately important, uses shipping_limit_date)</li>
             </ul>
-            <p><strong>Reference Tables (Relaxed Thresholds):</strong></p>
-            <ul>
-                <li><strong>olist_customers_dataset:</strong> Warn: 24 hours, Error: 48 hours (changes infrequently)</li>
-                <li><strong>olist_order_items_dataset:</strong> Warn: 6 hours, Error: 12 hours (moderately important)</li>
-            </ul>
+            <p><strong>Note:</strong> We're only monitoring tables with natural timestamp columns. Tables like customers and order_payments don't have reliable timestamps for freshness checks.</p>
         </div>
         
         <h3>Requirements:</h3>
         <ol>
-            <li>Configure freshness checks for the 4 main source tables</li>
+            <li>Configure freshness checks for the 2 main transactional tables</li>
             <li>Set appropriate warning and error thresholds as specified above</li>
             <li>Run initial freshness test (should show errors - data is from 2018!)</li>
             <li>Insert new test data and verify freshness tests pass</li>
@@ -781,7 +761,7 @@ sources:
     description: "Raw Olist e-commerce data"
     
     tables:
-      - name: olist_orders_dataset
+      - name: olist_orders
         description: "Raw orders data - CRITICAL for ML features"
         loaded_at_field: order_purchase_timestamp
         
@@ -796,31 +776,19 @@ sources:
           - name: order_purchase_timestamp
             description: "Used for freshness monitoring"
       
-      - name: olist_order_payments_dataset
-        description: "Payment data - affects revenue calculations"
-        # No natural timestamp field, so we'll use a surrogate
-        loaded_at_field: "datetime('now')"  # SQLite current time
-        
-        freshness:
-          warn_after: {count: 4, period: hour}
-          error_after: {count: 8, period: hour}
-      
-      - name: olist_customers_dataset
-        description: "Customer reference data - changes infrequently"
-        loaded_at_field: "datetime('now')"  # No natural timestamp
-        
-        # Relaxed thresholds for reference data
-        freshness:
-          warn_after: {count: 24, period: hour}
-          error_after: {count: 48, period: hour}
-        
-      - name: olist_order_items_dataset
+      - name: olist_order_items
         description: "Order line items - moderately important"
         loaded_at_field: shipping_limit_date
         
         freshness:
           warn_after: {count: 6, period: hour}
-          error_after: {count: 12, period: hour}</pre>
+          error_after: {count: 12, period: hour}
+        
+        columns:
+          - name: order_id
+            description: "Foreign key to orders"
+          - name: shipping_limit_date
+            description: "Used for freshness monitoring"</pre>
             
             <h4>Step-by-Step Testing Process:</h4>
             <pre>
@@ -828,17 +796,15 @@ sources:
 dbt source freshness
 
 # Expected output:
-# ❌ ERROR: olist_orders_dataset is stale (last data from 2018)
-# ❌ ERROR: olist_order_items_dataset is stale (last data from 2018)
-# ❌ ERROR: olist_order_payments_dataset is stale 
-# ❌ ERROR: olist_customers_dataset is stale</pre>
+# ❌ ERROR: olist_orders is stale (last data from 2018)
+# ❌ ERROR: olist_order_items is stale (last data from 2018)</pre>
             
             <div class="instructor-note">
                 <h4>🎓 Instructor Demo: Insert Fresh Data</h4>
                 <p><strong>Run this script to simulate fresh data arrival:</strong></p>
                 <pre>
 -- Insert recent orders to make freshness tests pass
-INSERT INTO olist_data.olist_orders_dataset (
+INSERT INTO olist_data.olist_orders (
     order_id, customer_id, order_status, 
     order_purchase_timestamp, order_approved_at
 ) VALUES 
@@ -850,7 +816,7 @@ INSERT INTO olist_data.olist_orders_dataset (
      datetime('now', '-1 hours'), datetime('now', '-55 minutes'));
 
 -- Insert corresponding order items
-INSERT INTO olist_data.olist_order_items_dataset (
+INSERT INTO olist_data.olist_order_items (
     order_id, order_item_id, product_id, seller_id,
     shipping_limit_date, price, freight_value
 ) VALUES 
@@ -861,7 +827,7 @@ INSERT INTO olist_data.olist_order_items_dataset (
 
 -- Verify the data was inserted
 SELECT order_id, order_status, order_purchase_timestamp 
-FROM olist_data.olist_orders_dataset 
+FROM olist_data.olist_orders 
 WHERE order_id LIKE 'FRESH_%'
 ORDER BY order_purchase_timestamp DESC;</pre>
             </div>
@@ -872,41 +838,21 @@ ORDER BY order_purchase_timestamp DESC;</pre>
 dbt source freshness
 
 # Expected output now:
-# ✅ PASS: olist_orders_dataset (30 minutes old, threshold: 2 hours)
-# ✅ PASS: olist_order_items_dataset (30 minutes old, threshold: 6 hours)
-# ⚠️  WARN/ERROR: Others still stale (depending on thresholds)</pre>
+# ✅ PASS: olist_orders (30 minutes old, threshold: 2 hours)
+# ✅ PASS: olist_order_items (30 minutes old, threshold: 6 hours)</pre>
             
-            <h4>Step 3: Validate specific table freshness:</h4>
-            <pre>
-# Check the exact timestamps that freshness is using
-SELECT 
-    'olist_orders_dataset' as table_name,
-    MAX(order_purchase_timestamp) as latest_timestamp,
-    julianday('now') - julianday(MAX(order_purchase_timestamp)) as days_old,
-    (julianday('now') - julianday(MAX(order_purchase_timestamp))) * 24 as hours_old
-FROM olist_data.olist_orders_dataset
-
-UNION ALL
-
-SELECT 
-    'olist_order_items_dataset' as table_name,
-    MAX(shipping_limit_date) as latest_timestamp,
-    julianday('now') - julianday(MAX(shipping_limit_date)) as days_old,
-    (julianday('now') - julianday(MAX(shipping_limit_date))) * 24 as hours_old
-FROM olist_data.olist_order_items_dataset;</pre>
-            
-            <h4>Step 4: Clean up test data:</h4>
+            <h4>Step 3: Clean up test data:</h4>
             <pre>
 -- Remove test data after demonstration
-DELETE FROM olist_data.olist_orders_dataset 
+DELETE FROM olist_data.olist_orders 
 WHERE order_id LIKE 'FRESH_%';
 
-DELETE FROM olist_data.olist_order_items_dataset 
+DELETE FROM olist_data.olist_order_items 
 WHERE order_id LIKE 'FRESH_%';
 
 -- Verify cleanup
 SELECT COUNT(*) as remaining_test_records
-FROM olist_data.olist_orders_dataset 
+FROM olist_data.olist_orders 
 WHERE order_id LIKE 'FRESH_%';</pre>
         </div>
         
@@ -926,7 +872,7 @@ WHERE order_id LIKE 'FRESH_%';</pre>
                 <pre>
 -- Create freshness monitoring table
 CREATE TABLE IF NOT EXISTS dbt_monitoring.freshness_log (
-    check_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    check_id SERIAL PRIMARY KEY,
     source_name TEXT,
     table_name TEXT,
     checked_at TIMESTAMP,
@@ -1048,10 +994,20 @@ if __name__ == "__main__":
             <h4>Step 1: Create monitoring infrastructure</h4>
             <pre>
 -- Run this SQL first to create monitoring tables
-CREATE SCHEMA IF NOT EXISTS dbt_monitoring;
+-- Note: Run each statement separately in psql or use a transaction
 
+DO $$
+BEGIN
+    -- Create schema if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'dbt_monitoring') THEN
+        CREATE SCHEMA dbt_monitoring;
+    END IF;
+END
+$$;
+
+-- Create model execution log table
 CREATE TABLE IF NOT EXISTS dbt_monitoring.model_execution_log (
-    execution_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id SERIAL PRIMARY KEY,
     model_name TEXT,
     execution_type TEXT, -- 'full_refresh' or 'incremental'
     started_at TIMESTAMP,
@@ -1060,8 +1016,9 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.model_execution_log (
     execution_time_seconds REAL
 );
 
+-- Create data quality metrics table
 CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
-    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric_id SERIAL PRIMARY KEY,
     model_name TEXT,
     measured_at TIMESTAMP,
     total_rows INTEGER,
@@ -1072,10 +1029,15 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
     max_orders_30d INTEGER,
     null_count INTEGER,
     data_quality_score REAL  -- 0-100 score
-);</pre>
+);
+
+-- Verify tables were created
+SELECT schemaname, tablename 
+FROM pg_tables 
+WHERE schemaname = 'dbt_monitoring';</pre>
             
             <h4>Step 2: Add hooks to your feature model</h4>
-            <p><strong>models/intermediate/int_customer_daily_features.sql (with production hooks)</strong></p>
+            <p><strong>models/intermediate/int_customer_daily_features_inc.sql (with production hooks)</strong></p>
             <pre>
 {{ config(
     materialized='incremental',
@@ -1083,61 +1045,61 @@ CREATE TABLE IF NOT EXISTS dbt_monitoring.data_quality_metrics (
     incremental_strategy='merge',
     
     pre_hook=[
-        -- Log execution start
-        "INSERT INTO dbt_monitoring.model_execution_log 
+        "-- Log execution start
+         INSERT INTO dbt_monitoring.model_execution_log 
          (model_name, execution_type, started_at) 
          VALUES (
            '{{ this.name }}', 
            '{% if is_incremental() %}incremental{% else %}full_refresh{% endif %}',
-           datetime('now')
+           CURRENT_TIMESTAMP
          )",
         
-        -- Clean old data on full refresh to keep table size manageable
-        "{% if not is_incremental() %}
+        "-- Clean old data on full refresh to keep table size manageable
+         {% if not is_incremental() %}
            DELETE FROM {{ this }} 
-           WHERE date < date('now', '-365 days')
+           WHERE date < CURRENT_DATE - INTERVAL '365 days'
          {% endif %}"
     ],
     
     post_hook=[
-        -- Create performance indexes
-        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_customer_date 
+        "-- Create performance indexes
+         CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_customer_date 
          ON {{ this }} (customer_id, date DESC)",
         
-        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_date_range 
-         ON {{ this }} (date) 
-         WHERE date >= date('now', '-90 days')",
+        "-- Create index for date range queries
+         CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_date_range 
+         ON {{ this }} (date DESC)",
         
-        -- Update table statistics for query optimizer
-        "ANALYZE {{ this }}",
+        "-- Update table statistics for query optimizer
+         ANALYZE {{ this }}",
         
-        -- Track comprehensive data quality metrics
-        "INSERT INTO dbt_monitoring.data_quality_metrics 
+        "-- Track comprehensive data quality metrics
+         INSERT INTO dbt_monitoring.data_quality_metrics 
+         (model_name, measured_at, total_rows, unique_customers, latest_date, earliest_date, 
+          avg_orders_30d, max_orders_30d, null_count, data_quality_score)
          SELECT 
            '{{ this.name }}' as model_name,
-           datetime('now') as measured_at,
+           CURRENT_TIMESTAMP as measured_at,
            COUNT(*) as total_rows,
            COUNT(DISTINCT customer_id) as unique_customers,
            MAX(date) as latest_date,
            MIN(date) as earliest_date,
-           AVG(CAST(orders_30d AS REAL)) as avg_orders_30d,
-           MAX(orders_30d) as max_orders_30d,
-           SUM(CASE WHEN orders_30d IS NULL THEN 1 ELSE 0 END) as null_count,
-           -- Calculate data quality score (0-100)
+           AVG(orders_14d::REAL) as avg_orders_30d,
+           MAX(orders_14d) as max_orders_30d,
+           SUM(CASE WHEN orders_14d IS NULL THEN 1 ELSE 0 END) as null_count,
            CASE 
              WHEN COUNT(*) = 0 THEN 0
-             ELSE 100.0 * (1.0 - CAST(SUM(CASE WHEN orders_30d IS NULL THEN 1 ELSE 0 END) AS REAL) / COUNT(*))
+             ELSE 100.0 * (1.0 - SUM(CASE WHEN orders_14d IS NULL THEN 1 ELSE 0 END)::REAL / COUNT(*))
            END as data_quality_score
          FROM {{ this }}
-         WHERE date >= date('now', '-7 days')",  -- Only recent data for quality metrics
+         WHERE date >= CURRENT_DATE - INTERVAL '7 days'",
         
-        -- Update execution completion log
-        "UPDATE dbt_monitoring.model_execution_log 
+        "-- Update execution completion log
+         UPDATE dbt_monitoring.model_execution_log 
          SET 
-           completed_at = datetime('now'),
+           completed_at = CURRENT_TIMESTAMP,
            rows_processed = (SELECT COUNT(*) FROM {{ this }}),
-           execution_time_seconds = 
-             (julianday(datetime('now')) - julianday(started_at)) * 86400
+           execution_time_seconds = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - started_at))
          WHERE model_name = '{{ this.name }}'
            AND completed_at IS NULL"
     ]
@@ -1160,11 +1122,11 @@ WITH customer_dates AS (
         ) }}
     ) d
     WHERE d.date_day >= c.landing_date
-      AND d.date_day <= date('2018-10-31')
+      AND d.date_day <= '2018-10-31'::date
       
     {% if is_incremental() %}
       AND d.date_day >= (
-        SELECT date(MAX(date), '-7 days')
+        SELECT MAX(date) - INTERVAL '7 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -1173,7 +1135,7 @@ WITH customer_dates AS (
 daily_payments AS (
     SELECT
         o.customer_id,
-        date(o.order_purchase_timestamp) as order_date,
+        DATE(o.order_purchase_timestamp) as order_date,
         SUM(p.payment_value) as daily_payment_value
     FROM {{ ref('stg_orders') }} o
     INNER JOIN {{ ref('stg_order_payments') }} p
@@ -1181,8 +1143,8 @@ daily_payments AS (
     WHERE o.order_status NOT IN ('canceled', 'unavailable')
     
     {% if is_incremental() %}
-      AND date(o.order_purchase_timestamp) >= (
-        SELECT date(MAX(date), '-14 days')
+      AND DATE(o.order_purchase_timestamp) >= (
+        SELECT MAX(date) - INTERVAL '14 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -1223,7 +1185,7 @@ features AS (
         {% endfor %}
         
         -- Days metrics
-        julianday(cd.date) - julianday(cd.landing_date) as days_since_landing
+        cd.date - cd.landing_date as days_since_landing
         
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
@@ -1236,11 +1198,11 @@ SELECT * FROM features</pre>
             <h4>Step 3: Test the hooks</h4>
             <pre>
 # Run the model to trigger hooks
-dbt run --select int_customer_daily_features --full-refresh
+dbt run --select int_customer_daily_features_inc --full-refresh
 
 # Verify pre-hook executed (execution started)
 SELECT * FROM dbt_monitoring.model_execution_log 
-WHERE model_name = 'int_customer_daily_features'
+WHERE model_name = 'int_customer_daily_features_inc'
 ORDER BY started_at DESC LIMIT 5;
 
 # Verify post-hook captured quality metrics
@@ -1252,14 +1214,15 @@ SELECT
     latest_date,
     data_quality_score
 FROM dbt_monitoring.data_quality_metrics 
-WHERE model_name = 'int_customer_daily_features'
+WHERE model_name = 'int_customer_daily_features_inc'
 ORDER BY measured_at DESC LIMIT 5;
 
-# Check that indexes were created
-SELECT name, sql 
-FROM sqlite_master 
-WHERE type = 'index' 
-  AND tbl_name = 'int_customer_daily_features';</pre>
+# Check that indexes were created (PostgreSQL)
+SELECT 
+    indexname,
+    indexdef
+FROM pg_indexes 
+WHERE tablename = 'int_customer_daily_features_inc';</pre>
             
             <h4>Step 4: Validate monitoring data</h4>
             <pre>
@@ -1281,8 +1244,8 @@ SELECT
 FROM dbt_monitoring.model_execution_log e
 LEFT JOIN dbt_monitoring.data_quality_metrics q
     ON e.model_name = q.model_name
-    AND datetime(e.completed_at) = datetime(q.measured_at)
-WHERE e.model_name = 'int_customer_daily_features'
+    AND e.completed_at = q.measured_at
+WHERE e.model_name = 'int_customer_daily_features_inc'
 ORDER BY e.started_at DESC;</pre>
         </div>
         
@@ -1347,14 +1310,13 @@ WHERE drift_status IN ('CRITICAL_DRIFT', 'MODERATE_DRIFT')"</pre>
     <!-- Challenge 4: Seeds for Reference Data -->
     <div class="challenge-box">
         <h2>🎯 Challenge 4: Seeds for Business Logic</h2>
-        <p>Use seed files to manage business rules and reference data that enrich your ML features.</p>
+        <p>Use seed files to manage reference data that enriches your ML features with geographic information.</p>
         
         <div class="info-box">
             <h3>📋 Concrete Instructions</h3>
             <p><strong>What you'll create:</strong></p>
             <ul>
                 <li><strong>Geographic data:</strong> Brazilian city tiers and economic zones</li>
-                <li><strong>Business rules:</strong> Customer segmentation criteria</li>
                 <li><strong>Feature enrichment:</strong> Join this data to your customer features</li>
                 <li><strong>Testing:</strong> Validate the enrichment works correctly</li>
             </ul>
@@ -1362,19 +1324,10 @@ WHERE drift_status IN ('CRITICAL_DRIFT', 'MODERATE_DRIFT')"</pre>
             <p><strong>Why this matters for ML:</strong> Business rules as code, version controlled, testable</p>
         </div>
         
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Create <code>data/brazil_cities.csv</code> with city tier information</li>
-            <li>Create <code>data/customer_segments.csv</code> with segmentation rules</li>
-            <li>Load seeds into your database with <code>dbt seed</code></li>
-            <li>Create enriched mart table that uses both seed files</li>
-            <li>Test that enrichment is working correctly</li>
-        </ol>
+        <h3>Step 1: Create the seed file</h3>
+        <p>First, you'll need a seed file with Brazilian city geographic data. Create <code>seeds/brazil_cities.csv</code> with the following content:</p>
         
-        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
-        <div id="solution4" class="solution">
-            <h4>Step 1: Create data/brazil_cities.csv</h4>
-            <pre>
+        <pre>
 city,state,region,population_tier,economic_zone,logistics_hub
 São Paulo,SP,Southeast,mega,primary,1
 Rio de Janeiro,RJ,Southeast,mega,primary,1
@@ -1391,243 +1344,180 @@ Goiânia,GO,Central-West,medium,tertiary,0
 Guarulhos,SP,Southeast,medium,primary,1
 Campinas,SP,Southeast,medium,primary,1
 São Luís,MA,Northeast,medium,tertiary,0</pre>
-            
-            <h4>Step 2: Create data/customer_segments.csv</h4>
+        
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Use the seed file data above to create <code>seeds/brazil_cities.csv</code></li>
+            <li>Load seeds into your database with <code>dbt seed</code></li>
+            <li>Create an enriched mart table (<code>models/mart/mart_customer_features_enriched.sql</code>) that joins your customer features with the seed file. The mart should get the latest features for each customer and add geographic attributes like city tier, economic zone, and logistics hub status.</li>
+            <li>Test that enrichment is working correctly</li>
+        </ol>
+        
+        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
+        <div id="solution4" class="solution">
+            <h4>Step 1: Load the seeds</h4>
             <pre>
-segment_name,min_orders,max_orders,min_revenue,max_revenue,max_days_inactive,description
-vip,15,999,2000,999999,30,"High value frequent customers"
-loyal,8,14,500,1999,60,"Regular customers with good value"
-promising,3,7,200,499,90,"Growing customers with potential"
-new,1,2,1,199,30,"New customers to nurture"
-at_risk,3,999,200,999999,91,"Previously good customers becoming inactive"
-dormant,1,999,1,999999,181,"Inactive customers to win back"</pre>
-            
-            <h4>Step 3: Load the seeds</h4>
-            <pre>
-# Load both seed files into your database
+# Load the seed file into your database
 dbt seed
-
-# Load specific seed if needed
-dbt seed --select brazil_cities
-
-# Verify seeds loaded correctly
-dbt run-operation list_relations --args '{schema_name: "main"}'</pre>
+</pre>
             
-            <h4>Step 4: Create enriched mart table</h4>
-            <p><strong>models/marts/mart_customer_features_enriched.sql</strong></p>
+            <h4>Step 2: Create enriched mart table</h4>
             <pre>
 {{ config(
     materialized='table',
     post_hook=[
-        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_segment 
-         ON {{ this }} (segment_name, city_tier)",
+        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_city_tier 
+         ON {{ this }} (city_tier, economic_zone)",
         "ANALYZE {{ this }}"
     ]
 ) }}
 
-WITH latest_features AS (
-    -- Get most recent features for each customer
-    SELECT DISTINCT ON (customer_id)
+WITH latest_features_ranked AS (
+    -- Get most recent features for each customer with ranking
+    SELECT 
         customer_id,
         date,
         total_payment_value as customer_revenue,
         orders_7d,
-        orders_30d as total_orders,
-        days_since_last_order,
-        landing_date
+        orders_14d as total_orders,
+        days_since_landing,
+        landing_date,
+        ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY date DESC) as rn
     FROM {{ ref('int_customer_daily_features') }}
-    ORDER BY customer_id, date DESC
+),
+
+latest_features AS (
+    -- Filter to only the most recent record per customer
+    SELECT 
+        customer_id,
+        date,
+        customer_revenue,
+        orders_7d,
+        total_orders,
+        days_since_landing,
+        landing_date
+    FROM latest_features_ranked
+    WHERE rn = 1
 ),
 
 customer_locations AS (
     -- Get customer city/state information
-    SELECT DISTINCT ON (customer_id)
+    SELECT 
         customer_id,
         customer_city as city,
         customer_state as state
     FROM {{ ref('stg_customers') }}
-),
-
-enriched_customers AS (
-    SELECT 
-        f.*,
-        l.city,
-        l.state,
-        -- Geographic enrichment from brazil_cities seed
-        COALESCE(c.region, 'Unknown') as region,
-        COALESCE(c.population_tier, 'unknown') as city_tier,
-        COALESCE(c.economic_zone, 'unknown') as economic_zone,
-        COALESCE(c.logistics_hub, 0) as is_logistics_hub
-    FROM latest_features f
-    LEFT JOIN customer_locations l 
-        ON f.customer_id = l.customer_id
-    LEFT JOIN {{ ref('brazil_cities') }} c 
-        ON LOWER(TRIM(l.city)) = LOWER(TRIM(c.city))
-),
-
-segmented_customers AS (
-    SELECT 
-        e.*,
-        -- Apply customer segmentation rules from seed
-        COALESCE(s.segment_name, 'unclassified') as segment_name,
-        COALESCE(s.description, 'No segment assigned') as segment_description
-    FROM enriched_customers e
-    LEFT JOIN {{ ref('customer_segments') }} s
-        ON e.total_orders >= s.min_orders 
-        AND e.total_orders <= s.max_orders
-        AND e.customer_revenue >= s.min_revenue
-        AND e.customer_revenue <= s.max_revenue
-        AND COALESCE(e.days_since_last_order, 0) <= s.max_days_inactive
 )
 
 SELECT 
-    *,
+    f.*,
+    l.city,
+    l.state,
+    -- Geographic enrichment from brazil_cities seed
+    COALESCE(c.region, 'Unknown') as region,
+    COALESCE(c.population_tier, 'unknown') as city_tier,
+    COALESCE(c.economic_zone, 'unknown') as economic_zone,
+    COALESCE(c.logistics_hub, 0) as is_logistics_hub,
+    
     -- Add derived features based on enrichment
     CASE 
-        WHEN economic_zone = 'primary' THEN 'high_opportunity'
-        WHEN economic_zone = 'secondary' THEN 'medium_opportunity'
+        WHEN c.economic_zone = 'primary' THEN 'high_opportunity'
+        WHEN c.economic_zone = 'secondary' THEN 'medium_opportunity'
         ELSE 'emerging_market'
     END as market_opportunity,
     
     CASE 
-        WHEN segment_name IN ('vip', 'loyal') AND is_logistics_hub = 1 THEN 'premium_fast_delivery'
-        WHEN segment_name IN ('vip', 'loyal') THEN 'premium_standard'
-        WHEN is_logistics_hub = 1 THEN 'standard_fast_delivery'
+        WHEN COALESCE(c.logistics_hub, 0) = 1 AND f.customer_revenue > 1000 THEN 'premium_fast_delivery'
+        WHEN COALESCE(c.logistics_hub, 0) = 1 THEN 'standard_fast_delivery'
+        WHEN f.customer_revenue > 1000 THEN 'premium_standard'
         ELSE 'standard'
     END as service_tier,
     
-    -- Business score combining segment and geography
+    -- Business score combining revenue and geography
     CASE 
-        WHEN segment_name = 'vip' AND economic_zone = 'primary' THEN 100
-        WHEN segment_name = 'vip' THEN 85
-        WHEN segment_name = 'loyal' AND economic_zone = 'primary' THEN 75
-        WHEN segment_name = 'loyal' THEN 65
-        WHEN segment_name = 'promising' THEN 50
-        WHEN segment_name = 'new' THEN 35
-        WHEN segment_name = 'at_risk' THEN 25
-        ELSE 10
+        WHEN f.customer_revenue > 2000 AND c.economic_zone = 'primary' THEN 100
+        WHEN f.customer_revenue > 2000 THEN 85
+        WHEN f.customer_revenue > 1000 AND c.economic_zone = 'primary' THEN 75
+        WHEN f.customer_revenue > 1000 THEN 65
+        WHEN f.customer_revenue > 500 THEN 50
+        WHEN f.customer_revenue > 200 THEN 35
+        ELSE 20
     END as business_priority_score
     
-FROM segmented_customers</pre>
+FROM latest_features f
+LEFT JOIN customer_locations l 
+    ON f.customer_id = l.customer_id
+LEFT JOIN {{ ref('brazil_cities') }} c 
+    ON LOWER(TRIM(l.city)) = LOWER(TRIM(c.city))</pre>
             
-            <h4>Step 5: Test the enrichment</h4>
+            <h4>Step 3: Run and test the enrichment</h4>
+            <p>Now run the mart model to materialize the enriched table, then verify that the seed data is being correctly joined to customer features.</p>
             <pre>
 # Run the enriched mart
 dbt run --select mart_customer_features_enriched
 
 # Verify seeds are being used correctly
 SELECT 
-    segment_name,
     city_tier,
     economic_zone,
+    market_opportunity,
     COUNT(*) as customer_count,
     AVG(customer_revenue) as avg_revenue,
     AVG(business_priority_score) as avg_priority_score
 FROM mart_customer_features_enriched
-GROUP BY segment_name, city_tier, economic_zone
+GROUP BY city_tier, economic_zone, market_opportunity
 ORDER BY avg_priority_score DESC;
 
 # Check for customers without enrichment (troubleshooting)
 SELECT 
     COUNT(*) as total_customers,
-    COUNT(CASE WHEN segment_name = 'unclassified' THEN 1 END) as unclassified_count,
     COUNT(CASE WHEN city_tier = 'unknown' THEN 1 END) as unknown_city_count,
-    ROUND(100.0 * COUNT(CASE WHEN segment_name = 'unclassified' THEN 1 END) / COUNT(*), 2) as unclassified_percent
+    ROUND(100.0 * COUNT(CASE WHEN city_tier = 'unknown' THEN 1 END) / COUNT(*), 2) as unknown_city_percent,
+    COUNT(CASE WHEN is_logistics_hub = 1 THEN 1 END) as logistics_hub_customers
 FROM mart_customer_features_enriched;</pre>
-            
-            <h4>Step 6: Add tests for the enriched data</h4>
-            <p><strong>models/marts/schema.yml</strong></p>
-            <pre>
-version: 2
-
-models:
-  - name: mart_customer_features_enriched
-    description: "Customer features enriched with business rules and geographic data"
-    config:
-      tags: ["mart", "ml_ready"]
-    
-    columns:
-      - name: customer_id
-        description: "Primary key"
-        tests:
-          - unique
-          - not_null
-      
-      - name: segment_name
-        description: "Customer segment from business rules"
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['vip', 'loyal', 'promising', 'new', 'at_risk', 'dormant', 'unclassified']
-      
-      - name: city_tier
-        description: "City population tier from geographic data"
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['mega', 'large', 'medium', 'unknown']
-      
-      - name: business_priority_score
-        description: "Composite business priority score (0-100)"
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: ">= 0 AND <= 100"
-    
-    tests:
-      # Custom test: ensure most customers are classified
-      - dbt_utils.expression_is_true:
-          expression: "(SELECT COUNT(*) FROM mart_customer_features_enriched WHERE segment_name = 'unclassified') < (SELECT COUNT(*) * 0.1 FROM mart_customer_features_enriched)"
-          config:
-            severity: warn</pre>
-            
-            <p><strong>Run enrichment tests:</strong></p>
-            <pre>
-# Test the enriched mart
-dbt test --select mart_customer_features_enriched
-
-# Update seeds and see changes
-# Edit data/customer_segments.csv to add new segment
-# Then: dbt seed --full-refresh
-# Then: dbt run --select mart_customer_features_enriched</pre>
         </div>
         
         <div class="optional-challenge">
-            <h3>⭐ Optional Challenge: Dynamic Segmentation</h3>
-            <p>Create a seed file with time-based segmentation rules that change by quarter:</p>
+            <h3>⭐ Optional Challenge: Seasonal Geographic Adjustments</h3>
+            <p>Create a seed file with seasonal adjustments to geographic zones for holiday shopping patterns:</p>
             <ul>
-                <li>Q1 segments (acquisition focus)</li>
-                <li>Q2 segments (retention focus)</li>
-                <li>Q3 segments (expansion focus)</li>
-                <li>Q4 segments (holiday optimization)</li>
+                <li>High season priorities (November-December)</li>
+                <li>Regional festival adjustments (by state)</li>
+                <li>Dynamic logistics capacity</li>
             </ul>
             
             <button class="solution-button" onclick="toggleSolution('optional4')">Show Solution</button>
             <div id="optional4" class="solution">
-                <h4>data/quarterly_segments.csv</h4>
+                <h4>seeds/seasonal_zones.csv</h4>
                 <pre>
-quarter,segment_name,min_orders,max_orders,min_revenue,max_revenue,max_days_inactive,marketing_focus
-Q1,acquisition_target,0,2,0,200,30,"New customer acquisition"
-Q1,retention_priority,3,999,200,999999,60,"Prevent churn"
-Q2,growth_opportunity,2,5,100,500,45,"Increase order frequency"
-Q2,high_value_maintain,6,999,500,999999,30,"Maintain engagement"
-Q3,upsell_ready,4,999,200,800,60,"Cross-sell and upsell"
-Q3,expansion_candidate,3,999,800,999999,45,"Premium services"
-Q4,holiday_shoppers,1,999,50,999999,90,"Seasonal campaigns"
-Q4,gift_buyers,2,999,100,999999,120,"Gift-focused marketing"</pre>
+state,month,seasonal_demand,logistics_multiplier,marketing_priority
+SP,11,high,1.5,critical
+SP,12,high,1.5,critical
+RJ,11,high,1.4,critical
+RJ,12,high,1.4,critical
+MG,6,medium,1.2,high
+BA,6,high,1.3,high
+RS,10,medium,1.1,medium
+SC,10,medium,1.1,medium
+CE,7,high,1.2,high
+PE,6,high,1.2,high</pre>
                 
-                <h4>Dynamic segmentation in model:</h4>
+                <h4>Dynamic seasonal adjustments in model:</h4>
                 <pre>
 -- Add to your enriched mart model
-{% set current_quarter = 'Q' ~ ((modules.datetime.date.today().month - 1) // 3 + 1) %}
+{% set current_month = modules.datetime.date.today().month %}
 
-LEFT JOIN {{ ref('quarterly_segments') }} qs
-    ON qs.quarter = '{{ current_quarter }}'
-    AND e.total_orders >= qs.min_orders 
-    AND e.total_orders <= qs.max_orders
-    AND e.customer_revenue >= qs.min_revenue
-    AND e.customer_revenue <= qs.max_revenue
-    AND COALESCE(e.days_since_last_order, 0) <= qs.max_days_inactive</pre>
+LEFT JOIN {{ ref('seasonal_zones') }} sz
+    ON l.state = sz.state
+    AND sz.month = {{ current_month }}
+
+-- Add derived column in final SELECT
+CASE 
+    WHEN sz.seasonal_demand = 'high' AND c.is_logistics_hub = 1 THEN business_priority_score * 1.3
+    WHEN sz.seasonal_demand = 'high' THEN business_priority_score * 1.2
+    WHEN sz.seasonal_demand = 'medium' THEN business_priority_score * 1.1
+    ELSE business_priority_score
+END as adjusted_priority_score</pre>
             </div>
         </div>
     </div>
