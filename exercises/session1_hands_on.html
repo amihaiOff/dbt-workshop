@@ -169,6 +169,53 @@
         <p><strong>Goal:</strong> Build the foundation of a feature engineering pipeline for customer churn prediction</p>
     </div>
 
+    <h2>📦 About the Olist Dataset</h2>
+
+    <div class="info-box">
+        <h3>Dataset Overview</h3>
+        <p>The Olist dataset contains real Brazilian e-commerce data with <strong>~100,000 orders from 2016-2018</strong>. Olist is Brazil's largest department store marketplace, connecting small businesses to larger sales channels.</p>
+
+        <h3>Available Tables & Relationships</h3>
+        <p>The dataset is structured across several interconnected tables:</p>
+
+        <table>
+            <tr>
+                <th>Table</th>
+                <th>Description</th>
+                <th>Key Relationships</th>
+            </tr>
+            <tr>
+                <td><code>olist_orders</code></td>
+                <td>Core order information including status, timestamps, and delivery dates</td>
+                <td>Links to customers via <code>customer_id</code></td>
+            </tr>
+            <tr>
+                <td><code>olist_customers</code></td>
+                <td>Customer demographics and location data</td>
+                <td>Joins with orders on <code>customer_id</code></td>
+            </tr>
+            <tr>
+                <td><code>olist_order_items</code></td>
+                <td>Line items within orders (products, prices, freight)</td>
+                <td>Links to orders via <code>order_id</code>; <strong>multiple items per order</strong></td>
+            </tr>
+            <tr>
+                <td><code>olist_order_payments</code></td>
+                <td>Payment details (type, installments, value)</td>
+                <td>Links to orders via <code>order_id</code>; <strong>multiple payments per order</strong></td>
+            </tr>
+        </table>
+
+        <h3>Key Data Characteristics</h3>
+        <ul>
+            <li><strong>One-to-Many Relationships:</strong> A single order can have multiple items and multiple payment entries</li>
+            <li><strong>Multi-Seller Orders:</strong> Different items in the same order may be fulfilled by different sellers</li>
+            <li><strong>Rich Temporal Data:</strong> Tracks order lifecycle from purchase through delivery</li>
+        </ul>
+
+        <p><strong>Data Source:</strong> <a href="https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce" target="_blank">Kaggle - Brazilian E-Commerce Dataset by Olist</a></p>
+    </div>
+
     <h2>📊 Business Context: Customer Churn Prediction</h2>
     
     <div class="info-box">
