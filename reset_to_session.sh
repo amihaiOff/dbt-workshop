@@ -4,6 +4,19 @@
 # Reset DBT Project State to End of Session
 #==============================================================================
 #
+# Detect Docker Compose command (support both old and new versions)
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    echo "Please install Docker Desktop which includes Docker Compose"
+    exit 1
+fi
+
+#==============================================================================
+#
 # DESCRIPTION:
 #   This script resets your dbt project and database to match the state at
 #   the end of a specific training session. It creates all solution models
@@ -61,18 +74,19 @@ echo "Resetting to end of Session $SESSION"
 echo "======================================"
 echo ""
 
-# Clean up existing model files
+# Clean up existing model files (but preserve schema.yml - we'll recreate it)
 echo "Step 1: Cleaning up existing dbt model files..."
 rm -f models/staging/stg_*.sql
 rm -f models/intermediate/int_*.sql
 rm -f models/mart/mart_*.sql
 rm -f snapshots/*.sql
 rm -f macros/calculate_*.sql
+# Note: schema.yml will be recreated with source definitions
 
 # Clean up dbt-created tables in database (keep source tables)
 echo ""
 echo "Step 2: Cleaning up dbt tables in database..."
-docker-compose exec -T postgres psql -U dbt_user -d dbt_workshop -q << 'EOSQL'
+$DOCKER_COMPOSE exec -T postgres psql -U dbt_user -d dbt_workshop -q << 'EOSQL'
 DO $$
 DECLARE
     r RECORD;
@@ -102,6 +116,32 @@ case $SESSION in
     1)
         echo ""
         echo "Step 3: Creating Session 1 models..."
+
+        # Create schema.yml with source definitions (required for all sessions)
+        cat > models/staging/schema.yml << 'EOF'
+version: 2
+
+sources:
+  - name: olist_data
+    schema: olist_data
+    tables:
+      - name: olist_orders
+        columns:
+          - name: order_id
+            description: Unique order identifier
+      - name: olist_customers
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+      - name: olist_order_items
+        columns:
+          - name: order_id
+            description: Order identifier
+      - name: olist_order_payments
+        columns:
+          - name: order_id
+            description: Order identifier
+EOF
 
         # Staging models
         cat > models/staging/stg_orders.sql << 'EOF'
@@ -253,7 +293,7 @@ LEFT JOIN daily_payments dp
 EOF
 
         echo "Step 4: Running dbt..."
-        docker-compose exec -T dbt-workshop dbt run
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run
 
         echo ""
         echo "✅ Session 1 setup complete!"
@@ -266,6 +306,32 @@ EOF
     2)
         echo ""
         echo "Step 3: Creating Session 1 + Session 2 models..."
+
+        # Create schema.yml with source definitions (required for all sessions)
+        cat > models/staging/schema.yml << 'EOF'
+version: 2
+
+sources:
+  - name: olist_data
+    schema: olist_data
+    tables:
+      - name: olist_orders
+        columns:
+          - name: order_id
+            description: Unique order identifier
+      - name: olist_customers
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+      - name: olist_order_items
+        columns:
+          - name: order_id
+            description: Order identifier
+      - name: olist_order_payments
+        columns:
+          - name: order_id
+            description: Order identifier
+EOF
 
         # First create all Session 1 models (same as case 1, but without running dbt yet)
         # Staging models
@@ -502,18 +568,18 @@ EOF
 EOF
 
         echo "Step 4: Running dbt models..."
-        docker-compose exec -T dbt-workshop dbt run
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run
 
         echo ""
         echo "Step 5: Taking snapshots..."
-        docker-compose exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2017-01-01"}'
-        docker-compose exec -T dbt-workshop dbt snapshot --select snap_seller_tier
-        docker-compose exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2017-06-30"}'
-        docker-compose exec -T dbt-workshop dbt snapshot --select snap_seller_tier
-        docker-compose exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2018-01-31"}'
-        docker-compose exec -T dbt-workshop dbt snapshot --select snap_seller_tier
-        docker-compose exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2018-10-17"}'
-        docker-compose exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2017-01-01"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2017-06-30"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2018-01-31"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2018-10-17"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
 
         echo ""
         echo "✅ Session 2 setup complete!"
@@ -539,7 +605,7 @@ echo ""
 echo "======================================"
 echo "Database state summary:"
 echo "======================================"
-docker-compose exec -T postgres psql -U dbt_user -d dbt_workshop -c "
+$DOCKER_COMPOSE exec -T postgres psql -U dbt_user -d dbt_workshop -c "
     SELECT
         CASE
             WHEN table_name LIKE 'stg_%' THEN 'Staging'

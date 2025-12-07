@@ -7,6 +7,17 @@ if [[ "${1:-}" == "--reset" ]] || [[ "${1:-}" == "-r" ]]; then
     RESET_MODE=true
 fi
 
+# Detect Docker Compose command (support both old and new versions)
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    echo "Please install Docker Desktop which includes Docker Compose"
+    exit 1
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -134,17 +145,17 @@ check_and_start_containers() {
         return 0
     elif [ "$containers_exist" = true ]; then
         print_info "Found existing containers - starting them (database state will be preserved)..."
-        docker-compose start
+        $DOCKER_COMPOSE start
         print_success "Containers started with preserved database state"
         return 0
     else
         print_info "No existing containers found - building and starting fresh..."
         print_info "Building Docker images (this may take a few minutes on first run)..."
-        docker-compose build
+        $DOCKER_COMPOSE build
         print_success "Docker images built successfully"
 
         print_info "Starting services (PostgreSQL + VS Code Server)..."
-        docker-compose up -d
+        $DOCKER_COMPOSE up -d
         print_success "Services started"
         return 0
     fi
@@ -162,7 +173,7 @@ reset_database() {
     fi
 
     print_info "Stopping services and removing database volumes..."
-    docker-compose down -v 2>/dev/null || true
+    $DOCKER_COMPOSE down -v 2>/dev/null || true
     print_success "Database volumes removed - fresh data will be loaded on restart"
 }
 
@@ -174,7 +185,7 @@ wait_for_services() {
     local attempt=0
 
     while [ $attempt -lt $max_attempts ]; do
-        if docker-compose ps | grep -q "postgres.*healthy"; then
+        if $DOCKER_COMPOSE ps | grep -q "postgres.*healthy"; then
             print_success "PostgreSQL is ready"
             break
         fi
@@ -184,7 +195,7 @@ wait_for_services() {
 
         if [ $attempt -eq $max_attempts ]; then
             print_error "PostgreSQL failed to start within expected time"
-            print_info "Check logs with: docker-compose logs postgres"
+            print_info "Check logs with: $DOCKER_COMPOSE logs postgres"
             exit 1
         fi
     done
@@ -197,7 +208,7 @@ wait_for_services() {
         print_success "VS Code Server is ready"
     else
         print_error "VS Code Server failed to start"
-        print_info "Check logs with: docker-compose logs dbt-workshop"
+        print_info "Check logs with: $DOCKER_COMPOSE logs dbt-workshop"
         exit 1
     fi
 }
@@ -239,10 +250,10 @@ show_info() {
     print_success "Setup complete! Happy learning!"
     echo ""
     echo "Useful commands:"
-    echo "  docker-compose logs -f          # View logs"
-    echo "  docker-compose down             # Stop services"
-    echo "  docker-compose down -v          # Stop and remove data"
-    echo "  docker-compose restart          # Restart services"
+    echo "  $DOCKER_COMPOSE logs -f          # View logs"
+    echo "  $DOCKER_COMPOSE down             # Stop services"
+    echo "  $DOCKER_COMPOSE down -v          # Stop and remove data"
+    echo "  $DOCKER_COMPOSE restart          # Restart services"
     echo ""
 }
 
