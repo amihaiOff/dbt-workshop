@@ -177,136 +177,6 @@
         <p><strong>Today's Focus:</strong> Make it production-ready with incremental processing and handle changing dimensions!</p>
     </div>
 
-    <h2>📸 Slowly Changing Dimensions (SCD) Type 2</h2>
-    
-    <div class="info-box">
-        <h3>Understanding SCD Type 2 with dbt Snapshots</h3>
-        
-        <p><strong>What are Slowly Changing Dimensions?</strong></p>
-        <p>Customer attributes that change over time (payment preferences, locations, segments). We need to track history for point-in-time correctness.</p>
-        
-        <p><strong>dbt Snapshots Solution:</strong></p>
-        <ul>
-            <li>Automatically tracks changes in source tables</li>
-            <li>Creates SCD Type 2 tables with validity periods</li>
-            <li>Adds <code>dbt_valid_from</code> and <code>dbt_valid_to</code> columns</li>
-        </ul>
-        
-        <p><strong>How it works:</strong></p>
-        <pre>
--- First run: Takes snapshot of current state
--- Subsequent runs: Detects changes and creates new rows
--- Result: Complete history with validity periods
-
-customer_id | favorite_payment | dbt_valid_from | dbt_valid_to
-C001        | credit_card      | 2017-01-01     | 2018-03-15
-C001        | boleto          | 2018-03-15     | NULL</pre>
-    </div>
-
-    <!-- Challenge 1: SCD Type 2 - SIMPLIFIED -->
-    <div class="challenge-box">
-        <h2>🎯 Challenge 1: Simple Snapshot Implementation</h2>
-        <p>Create a basic snapshot of customer payment preferences based on existing intermediate models.</p>
-        
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Create a simple intermediate table with customer payment preferences</li>
-            <ul style="margin-left: 0.5em;">
-                <li>Calculate each users most common payment type and save it in the table</li>
-                <li>The end results should be a table with one row per user and the columns: customer_id, favorite_payment_method, usage_count, updated_at</li>
-            </ul>
-            <li>Set up a snapshot to track changes over time</li>
-            <li>Test the snapshot functionality</li>
-        </ol>
-        
-        <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
-        <div id="solution1" class="solution">
-            <h4>Step 1: Create models/intermediate/int_customer_payment_preference.sql</h4>
-            <pre>
-{{ config(materialized='table') }}
-
-WITH customer_payments AS (
-    -- Get most common payment type per customer
-    SELECT 
-        o.customer_id,
-        p.payment_type,
-        COUNT(*) as payment_count
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-    GROUP BY 1, 2
-),
-
-ranked_preferences AS (
-    SELECT 
-        customer_id,
-        payment_type,
-        payment_count,
-        ROW_NUMBER() OVER (
-            PARTITION BY customer_id 
-            ORDER BY payment_count DESC, payment_type
-        ) as rank
-    FROM customer_payments
-)
-
-SELECT 
-    customer_id,
-    payment_type as favorite_payment_method,
-    payment_count as usage_count,
-    CURRENT_TIMESTAMP::timestamp as updated_at  -- For snapshot tracking
-FROM ranked_preferences
-WHERE rank = 1</pre>
-            
-            <h4>Step 2: Run the model to create the table</h4>
-            <pre>
-# Create the intermediate table
-dbt run --select int_customer_payment_preference
-</pre>
-            
-            <h4>Step 3: Create snapshots/snap_payment_preference.sql</h4>
-            <pre>
-{% snapshot snap_payment_preference %}
-    {{
-        config(
-          target_schema='snapshots',
-          strategy='timestamp',
-          unique_key='customer_id',
-          updated_at='updated_at',
-        )
-    }}
-    
-    SELECT * FROM {{ ref('int_customer_payment_preference') }}
-    
-{% endsnapshot %}</pre>
-            
-            <h4>Step 4: Run the snapshot</h4>
-            <pre>
-# First run - creates initial snapshot
-dbt snapshot --select snap_payment_preference
-
-# Run again - no changes should be detected
-dbt snapshot --select snap_payment_preference</pre>
-            
-            <p><strong>Verify in your database:</strong></p>
-            <pre>
-SELECT customer_id, favorite_payment_method, dbt_valid_from, dbt_valid_to
-FROM snapshots.snap_payment_preference
-LIMIT 10;</pre>
-        </div>
-        
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Advanced Preference Tracking</h3>
-            <p>Create the more complex model from the original solution that tracks payment preferences over time with:</p>
-            <ul>
-                <li>Daily preference calculations</li>
-                <li>Change detection logic</li>
-                <li>Cumulative payment counting</li>
-                <li>Preference change events</li>
-            </ul>
-        </div>
-    </div>
-
     <h2>🔧 Variables in dbt</h2>
     
     <div class="info-box">
@@ -339,9 +209,9 @@ dbt run --vars '{lookback_days: [7, 14, 30], churn_threshold: 120}'
         <p><strong>Priority Order:</strong> Command Line > Profile > Project > Model Default</p>
     </div>
 
-    <!-- Challenge 2: Variables - ENHANCED -->
+    <!-- Challenge 1: Variables - ENHANCED -->
     <div class="challenge-box">
-        <h2>🎯 Challenge 2: Master Variable Hierarchy</h2>
+        <h2>🎯 Challenge 1: Master Variable Hierarchy</h2>
         <p>Learn how dbt resolves variables from different sources and test the hierarchy in action.</p>
         
         <h3>Requirements:</h3>
@@ -352,8 +222,8 @@ dbt run --vars '{lookback_days: [7, 14, 30], churn_threshold: 120}'
             <li>Test variable resolution priority</li>
         </ol>
         
-        <button class="solution-button" onclick="toggleSolution('solution2')">Show Solution</button>
-        <div id="solution2" class="solution">
+        <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
+        <div id="solution1" class="solution">
             <h4>Step 1: Add to dbt_project.yml (Project Level)</h4>
             <pre>
 # Add this to your dbt_project.yml
@@ -488,6 +358,282 @@ dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
 {% endif %}
 
 -- Run with: dbt run --target dev  OR  dbt run --target prod</pre>
+        </div>
+    </div>
+
+    <h2>📸 Slowly Changing Dimensions (SCD) Type 2</h2>
+
+    <div class="info-box">
+        <h3>Understanding SCD Type 2 with dbt Snapshots</h3>
+
+        <p><strong>What are Slowly Changing Dimensions?</strong></p>
+        <p>Business attributes that change over time (seller tiers, customer segments, product categories). We need to track history for analysis and point-in-time correctness.</p>
+
+        <p><strong>dbt Snapshots Solution:</strong></p>
+        <ul>
+            <li>Automatically tracks changes in source tables</li>
+            <li>Creates SCD Type 2 tables with validity periods</li>
+            <li>Adds <code>dbt_valid_from</code> and <code>dbt_valid_to</code> columns</li>
+            <li>Runs on a schedule to capture state changes</li>
+        </ul>
+
+        <p><strong>How it works:</strong></p>
+        <pre>
+-- First run: Takes snapshot of current state
+-- Subsequent runs: Detects changes and creates new rows with validity periods
+-- Result: Complete history of all state changes
+
+seller_id | seller_tier | total_revenue | dbt_valid_from | dbt_valid_to
+S001      | bronze      | 500           | 2017-01-01     | 2017-06-30
+S001      | silver      | 5000          | 2017-06-30     | 2018-01-15
+S001      | gold        | 12000         | 2018-01-15     | NULL</pre>
+
+        <p><strong>Real-World Use Cases:</strong></p>
+        <ul>
+            <li><strong>Seller Performance:</strong> Track seller tier changes (bronze → silver → gold)</li>
+            <li><strong>Customer Segments:</strong> Track customer lifecycle (prospect → active → VIP)</li>
+            <li><strong>Product Pricing:</strong> Track price tier changes over time</li>
+            <li><strong>Inventory Status:</strong> Track stock level categories (in-stock → low → out-of-stock)</li>
+        </ul>
+    </div>
+
+    <!-- Challenge 2: SCD Type 2 - NEW SELLER TIER VERSION -->
+    <div class="challenge-box">
+        <h2>🎯 Challenge 2: Track Seller Performance with Snapshots</h2>
+        <p>Build a complete SCD Type 2 solution to track how sellers grow from bronze → silver → gold → platinum tier over time.</p>
+
+        <div class="info-box">
+            <h3>📊 Business Context</h3>
+            <p>In this e-commerce platform, sellers start small and grow over time. We want to track their progression through performance tiers to:</p>
+            <ul>
+                <li>Analyze which sellers are improving vs declining</li>
+                <li>Understand how long sellers stay in each tier</li>
+                <li>Calculate tier-specific metrics (avg time to gold, churn rate by tier)</li>
+                <li>Enable point-in-time reporting ("Who were our gold sellers in Q1 2017?")</li>
+            </ul>
+        </div>
+
+        <h3>🎯 Your Mission:</h3>
+        <p>You'll build 3 models to track seller tier changes. Here are the detailed requirements for each:</p>
+
+        <h4>Part 1: Staging Model - <code>stg_order_items_snapshot.sql</code></h4>
+        <p><strong>Purpose:</strong> Clean order items data by joining with orders table and filtering out invalid data.</p>
+        <p><strong>Data Cleaning Requirements:</strong></p>
+        <ul>
+            <li>Join <code>olist_order_items</code> with <code>olist_orders</code> to get order timestamps</li>
+            <li>Filter out NULL <code>order_id</code> and <code>seller_id</code></li>
+            <li>Filter out orders with <code>price &lt;= 0</code> (invalid/test data)</li>
+            <li>Filter out canceled/unavailable orders: <code>order_status NOT IN ('canceled', 'unavailable')</code></li>
+            <li>Filter out orders with NULL <code>order_purchase_timestamp</code></li>
+            <li>Convert <code>price</code> and <code>freight_value</code> to DECIMAL(10,2)</li>
+            <li>Include: order_id, order_item_id, product_id, seller_id, price, freight_value, order_purchase_timestamp, order_date, order_status</li>
+        </ul>
+
+        <h4>Part 2: Intermediate Model - <code>int_seller_performance.sql</code></h4>
+        <p><strong>Purpose:</strong> Calculate seller metrics and assign tier based on order volume.</p>
+
+        <div class="warning-box">
+            <h4>🔑 IMPORTANT: Using Variables for Time-Based Testing</h4>
+            <p>To test how sellers progress through tiers over time, you need to use a variable called <code>snapshot_date</code> that controls "how much data to include."</p>
+            <p><strong>Why?</strong> In the real world, you'd run snapshots daily. For testing, we simulate this by filtering data up to different dates:</p>
+            <ul>
+                <li>Run 1: Include orders up to 2017-01-01 → See mostly bronze sellers (new sellers)</li>
+                <li>Run 2: Include orders up to 2017-06-30 → Some bronze → silver upgrades!</li>
+                <li>Run 3: Include orders up to 2018-01-31 → Gold tier sellers appear!</li>
+                <li>Run 4: Include orders up to 2018-10-17 → Platinum tier unlocked!</li>
+            </ul>
+            <p><strong>How to implement:</strong> At the top of your model, use <code>{% set snapshot_date = var('snapshot_date', '2018-10-17') %}</code>, then filter with <code>WHERE order_date &lt;= '{{ snapshot_date }}'::date</code></p>
+        </div>
+
+        <p><strong>Tier Classification Rules (based on order count):</strong></p>
+        <ul>
+            <li><strong>Platinum:</strong> 500+ orders (top 1% performers)</li>
+            <li><strong>Gold:</strong> 100-499 orders (high performers)</li>
+            <li><strong>Silver:</strong> 20-99 orders (growing sellers)</li>
+            <li><strong>Bronze:</strong> 1-19 orders (new/small sellers)</li>
+        </ul>
+
+        <p><strong>Metrics to Calculate per Seller:</strong></p>
+        <ul>
+            <li><code>seller_id</code> - Primary key</li>
+            <li><code>seller_tier</code> - Classification based on order count (use CASE statement)</li>
+            <li><code>total_orders</code> - COUNT(DISTINCT order_id)</li>
+            <li><code>unique_products</code> - COUNT(DISTINCT product_id)</li>
+            <li><code>total_revenue</code> - SUM(price)</li>
+            <li><code>avg_order_value</code> - AVG(price)</li>
+            <li><code>first_sale_date</code> - MIN(order_date)</li>
+            <li><code>last_sale_date</code> - MAX(order_date)</li>
+            <li><code>updated_at</code> - CURRENT_TIMESTAMP (required for snapshot tracking)</li>
+        </ul>
+
+        <h4>Part 3: Snapshot - <code>snap_seller_tier.sql</code></h4>
+        <p><strong>Purpose:</strong> Automatically track when sellers change tiers using dbt's snapshot functionality.</p>
+        <p><strong>Snapshot Configuration:</strong></p>
+        <ul>
+            <li><code>target_schema</code>: 'olist_data' (keep snapshots in the regular schema)</li>
+            <li><code>strategy</code>: 'timestamp' (detect changes based on timestamp column)</li>
+            <li><code>unique_key</code>: 'seller_id' (one row per seller)</li>
+            <li><code>updated_at</code>: 'updated_at' (column to monitor for changes)</li>
+        </ul>
+
+        <h4>Part 4: Testing Workflow</h4>
+        <p>Follow these steps to see sellers progress through tiers over time:</p>
+        <ol>
+            <li>Build the staging model once</li>
+            <li>Build performance model with <code>snapshot_date = "2017-01-01"</code>, then take snapshot</li>
+            <li>Rebuild performance with <code>snapshot_date = "2017-06-30"</code>, then snapshot again → Detect changes!</li>
+            <li>Continue with 2018-01-31 and 2018-10-17 to see full progression</li>
+        </ol>
+
+        <button class="solution-button" onclick="toggleSolution('solution2')">Show Solution</button>
+        <div id="solution2" class="solution">
+            <h4>Part 1: models/staging/stg_order_items_snapshot.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+SELECT
+    oi.order_id,
+    oi.order_item_id,
+    oi.product_id,
+    oi.seller_id,
+    oi.price::DECIMAL(10,2) as price,
+    oi.freight_value::DECIMAL(10,2) as freight_value,
+    o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    DATE(o.order_purchase_timestamp) as order_date,
+    o.order_status
+FROM {{ source('olist_data', 'olist_order_items') }} oi
+INNER JOIN {{ source('olist_data', 'olist_orders') }} o
+    ON oi.order_id = o.order_id
+WHERE oi.order_id IS NOT NULL
+  AND oi.seller_id IS NOT NULL
+  AND oi.price > 0
+  AND o.order_status NOT IN ('canceled', 'unavailable')
+  AND o.order_purchase_timestamp IS NOT NULL</pre>
+
+            <h4>Part 2: models/intermediate/int_seller_performance.sql</h4>
+            <pre>
+{{ config(materialized='table') }}
+
+-- Use variable to control analysis date for testing
+{% set snapshot_date = var('snapshot_date', '2018-10-17') %}
+
+WITH seller_metrics AS (
+    SELECT
+        seller_id,
+        COUNT(DISTINCT order_id) as total_orders,
+        COUNT(DISTINCT product_id) as unique_products,
+        SUM(price) as total_revenue,
+        AVG(price) as avg_order_value,
+        MIN(order_date) as first_sale_date,
+        MAX(order_date) as last_sale_date,
+
+        -- Calculate tier based on order volume
+        CASE
+            WHEN COUNT(DISTINCT order_id) >= 500 THEN 'platinum'
+            WHEN COUNT(DISTINCT order_id) >= 100 THEN 'gold'
+            WHEN COUNT(DISTINCT order_id) >= 20 THEN 'silver'
+            ELSE 'bronze'
+        END as seller_tier,
+
+        -- Track when this calculation was made
+        CURRENT_TIMESTAMP as updated_at
+
+    FROM {{ ref('stg_order_items_snapshot') }}
+    WHERE order_date <= '{{ snapshot_date }}'::date
+    GROUP BY seller_id
+)
+
+SELECT
+    seller_id,
+    seller_tier,
+    total_orders,
+    unique_products,
+    total_revenue,
+    avg_order_value,
+    first_sale_date,
+    last_sale_date,
+    updated_at
+FROM seller_metrics</pre>
+
+            <h4>Part 3: snapshots/snap_seller_tier.sql</h4>
+            <pre>
+{% snapshot snap_seller_tier %}
+    {{
+        config(
+          target_schema='olist_data',
+          strategy='timestamp',
+          unique_key='seller_id',
+          updated_at='updated_at',
+        )
+    }}
+
+    SELECT * FROM {{ ref('int_seller_performance') }}
+
+{% endsnapshot %}</pre>
+
+            <h4>Part 4: Testing Commands</h4>
+            <pre>
+# Step 1: Build staging model
+dbt run --select stg_order_items_snapshot
+
+# Step 2: Initial snapshot (Jan 2017)
+dbt run --select int_seller_performance --vars '{snapshot_date: "2017-01-01"}'
+dbt snapshot --select snap_seller_tier
+
+# Step 3: Second snapshot (Jun 2017) - Detect tier changes!
+dbt run --select int_seller_performance --vars '{snapshot_date: "2017-06-30"}'
+dbt snapshot --select snap_seller_tier
+
+# Step 4: Third snapshot (Jan 2018)
+dbt run --select int_seller_performance --vars '{snapshot_date: "2018-01-31"}'
+dbt snapshot --select snap_seller_tier
+
+# Step 5: Final snapshot (Oct 2018)
+dbt run --select int_seller_performance --vars '{snapshot_date: "2018-10-17"}'
+dbt snapshot --select snap_seller_tier</pre>
+
+            <h4>Verification Queries</h4>
+
+            <p><strong>1. View seller tier distribution:</strong></p>
+            <pre>
+SELECT seller_tier, COUNT(*) as seller_count
+FROM olist_data.snap_seller_tier
+WHERE dbt_valid_to IS NULL  -- Current state only
+GROUP BY seller_tier;</pre>
+
+            <p><strong>2. Find sellers who changed tiers (SCD Type 2 proof!):</strong></p>
+            <pre>
+SELECT seller_id, COUNT(*) as tier_changes
+FROM olist_data.snap_seller_tier
+GROUP BY seller_id
+HAVING COUNT(*) > 1
+ORDER BY tier_changes DESC
+LIMIT 10;</pre>
+
+            <p><strong>3. See a specific seller's progression over time:</strong></p>
+            <pre>
+SELECT
+    seller_tier,
+    total_orders,
+    dbt_valid_from,
+    dbt_valid_to
+FROM olist_data.snap_seller_tier
+WHERE seller_id = 'YOUR_SELLER_ID_HERE'
+ORDER BY dbt_valid_from;</pre>
+
+            <p><strong>Expected Results:</strong> ~2,000 sellers with tier changes, showing bronze → silver → gold → platinum progressions!</p>
+        </div>
+
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: Seller Cohort Analysis</h3>
+            <p>Use the snapshot to analyze seller lifecycle:</p>
+            <ul>
+                <li>Calculate average time to reach each tier (e.g., "90 days to silver")</li>
+                <li>Identify sellers who were downgraded (gold → silver)</li>
+                <li>Create a seller churn analysis (stopped getting orders)</li>
+                <li>Build a "tier transition matrix" showing bronze→silver→gold flow</li>
+                <li>Calculate revenue by tier at different points in time</li>
+            </ul>
         </div>
     </div>
 
