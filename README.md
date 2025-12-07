@@ -206,9 +206,60 @@ docker-compose down
 docker-compose down -v
 ```
 
-## Resetting the Database
+## Workshop Session Management
 
-If you've made changes with dbt (created models, run transformations, etc.) and want to reset the database back to its original state with just the raw Olist data:
+### Quick Session Reset (Recommended for Training)
+
+If you're following the workshop exercises and want to start fresh at a specific session with all solution models in place:
+
+```bash
+./reset_to_session.sh <session_number>
+```
+
+**Examples:**
+```bash
+./reset_to_session.sh 1    # Reset to end of Session 1 (foundations)
+./reset_to_session.sh 2    # Reset to end of Session 2 (advanced patterns)
+```
+
+**What this does:**
+1. ✅ Cleans up existing dbt model files
+2. ✅ Drops dbt-created tables (stg_*, int_*, mart_*, snap_*)
+3. ✅ **Preserves source data** (olist_* tables remain intact)
+4. ✅ Creates all solution models for the specified session
+5. ✅ Runs dbt to build tables in the database
+6. ✅ For Session 2: Takes multiple snapshots to demonstrate SCD Type 2
+
+**Available Sessions:**
+
+| Session | Models Created | Database Tables |
+|---------|----------------|-----------------|
+| **1** | 6 models | 4 staging + 2 intermediate |
+| | `stg_orders`, `stg_customers`, `stg_order_items`, `stg_order_payments` | |
+| | `int_customer_landing`, `int_customer_daily_features` | |
+| **2** | 8 models + 1 snapshot | All of Session 1 + 1 staging + 1 intermediate + 1 snapshot |
+| | `stg_order_items_snapshot`, `int_seller_performance` | |
+| | `snap_seller_tier` (with 4 time-based iterations) | |
+
+**When to use this:**
+- ✅ Starting a new workshop session
+- ✅ Want to catch up to a specific point in the training
+- ✅ Need consistent state with other participants
+- ✅ Want to see the solutions and explore the code
+- ✅ **Fast**: Doesn't reset database volumes (~1 min vs 3-5 min)
+
+**What gets reset:**
+- dbt model files (`.sql` files in `models/` and `snapshots/`)
+- dbt-created tables in the database
+
+**What is preserved:**
+- ✅ Source data (all 9 olist_* tables)
+- ✅ VS Code settings and extensions
+- ✅ dbt project configuration
+
+### Full Database Reset
+
+If you need to completely reset the database back to its original state with **only** the raw Olist data:
 
 ```bash
 ./setup.sh --reset
@@ -222,10 +273,10 @@ This command will:
 5. Reload the original Olist dataset
 
 **When to use this:**
-- You've run `dbt run` and want to undo all transformations
-- You've modified data and want a clean slate
-- You want to restart exercises from scratch
-- Your database is in an inconsistent state
+- Database is in an inconsistent state
+- Want to start completely from scratch
+- Need to reload source data
+- **Slower**: Takes 3-5 minutes to recreate volumes
 
 **What gets reset:**
 - All dbt models in `olist_data` schema are removed
@@ -293,6 +344,7 @@ All tables are in the `olist_data` schema.
 dbt-workshop/
 ├── README.md                   # This file
 ├── setup.sh                    # One-command setup script
+├── reset_to_session.sh         # Reset to specific workshop session
 ├── docker-compose.yml          # Docker services configuration
 ├── Dockerfile                  # VS Code Server + dbt image
 ├── start.sh                    # Container startup script
@@ -306,8 +358,15 @@ dbt-workshop/
 │   ├── init_postgres.py        # PostgreSQL data loader
 │   └── init_sqlite.py          # Legacy SQLite loader
 ├── models/                     # dbt models (transformations)
+│   ├── staging/                # Staging layer models
+│   ├── intermediate/           # Intermediate layer models
+│   └── mart/                   # Mart layer models
+├── snapshots/                  # dbt snapshots for SCD Type 2
 ├── seeds/                      # Additional seed data
-└── exercises/                  # Workshop exercises
+└── exercises/                  # Workshop exercises (HTML)
+    ├── session1_hands_on.html
+    ├── session2_hands_on.html
+    └── session3_hands_on.html
 ```
 
 ## Troubleshooting
