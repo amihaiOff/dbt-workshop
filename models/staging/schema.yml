@@ -1,0 +1,107 @@
+version: 2
+
+sources:
+  - name: olist_data
+    schema: olist_data
+    tables:
+      - name: olist_orders
+        columns:
+          - name: order_id
+            description: Unique order identifier
+      - name: olist_customers
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+      - name: olist_order_items
+        columns:
+          - name: order_id
+            description: Order identifier
+      - name: olist_order_payments
+        columns:
+          - name: order_id
+            description: Order identifier
+
+models:
+  - name: stg_orders
+    description: "Cleaned orders from Olist dataset"
+    config:
+      tags: ["staging", "critical"]
+
+    columns:
+      - name: order_id
+        description: "Unique order identifier"
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_id
+        description: "Customer who placed the order"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+              config:
+                severity: error
+
+      - name: order_status
+        description: "Current order status"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['delivered', 'shipped', 'processing', 'canceled', 'invoiced', 'approved', 'created']
+              config:
+                severity: warn
+
+      - name: order_purchase_timestamp
+        description: "When order was placed"
+        tests:
+          - not_null
+
+      - name: order_date
+        description: "Date of order (for partitioning)"
+        tests:
+          - not_null
+
+  - name: stg_customers
+    description: "Clean customer data"
+    config:
+      tags: ["staging", "reference"]
+
+    columns:
+      - name: customer_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_city
+        description: "Customer city"
+        tests:
+          - not_null
+
+      - name: customer_state
+        description: "Customer state (should be valid Brazilian states)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SP', 'RJ', 'MG', 'RS', 'PR', 'SC', 'BA', 'GO', 'ES', 'PE', 'CE', 'PA', 'DF', 'MT', 'MS', 'PB', 'RN', 'AL', 'PI', 'SE', 'RO', 'AC', 'AM', 'RR', 'AP', 'TO', 'MA']
+              config:
+                severity: warn
+
+  - name: stg_order_payments
+    description: "Payment information"
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+              config:
+                severity: warn
+
+      - name: payment_value
+        description: "Payment amount"
+        tests:
+          - not_null

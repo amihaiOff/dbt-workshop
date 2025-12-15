@@ -645,166 +645,6 @@ ORDER BY dbt_valid_from;</pre>
         </div>
     </div>
 
-    <h2>🎭 Macros in dbt</h2>
-    
-    <div class="info-box">
-        <h3>Understanding Macros - You've Already Used Them!</h3>
-        
-        <p><strong>What are Macros?</strong></p>
-        <p>Macros are reusable pieces of SQL code, like functions in programming languages.</p>
-        
-        <p><strong>You've Already Used These Macros from Session 1:</strong></p>
-        <ul>
-            <li><strong>dbt_utils.generate_surrogate_key():</strong> Created unique keys for customer landing</li>
-            <li><strong>dbt_utils.date_spine():</strong> Generated date ranges for daily features</li>
-            <li><strong>dbt_utils.pivot():</strong> Converted payment types to columns</li>
-            <li><strong>Built-in {{ ref() }} and {{ source() }}:</strong> These are macros too!</li>
-        </ul>
-        
-        <p><strong>Now you'll create your own:</strong></p>
-        <pre>
--- macros/get_payment_metrics.sql
-{% macro get_payment_metrics(days) %}
-    SUM(CASE 
-        WHEN order_date >= date - {{ days }} 
-        THEN payment_value 
-    END) as payment_{{ days }}d
-{% endmacro %}</pre>
-        
-        <p><strong>Using your macro:</strong></p>
-        <pre>
-SELECT 
-    customer_id,
-    {{ get_payment_metrics(7) }},
-    {{ get_payment_metrics(30) }}
-FROM payments</pre>
-        
-        <p><strong>Macros vs Functions vs Variables:</strong></p>
-        <ul>
-            <li><strong>Variables:</strong> Store values (numbers, strings, lists)</li>
-            <li><strong>Macros:</strong> Generate SQL code dynamically</li>
-            <li><strong>Functions:</strong> SQL functions run in the database</li>
-        </ul>
-    </div>
-
-    <!-- Challenge 3: Macros - SIMPLIFIED RFM -->
-    <div class="challenge-box">
-        <h2>🎯 Challenge 3: Create RFM Metrics Macro</h2>
-        <p>Build a simple macro to calculate RFM (Recency, Frequency, Monetary) raw metrics - the foundation of customer analysis.</p>
-        
-        <div class="info-box">
-            <h3>📊 What is RFM Analysis?</h3>
-            <p><strong>RFM</strong> is a customer analysis technique that measures three key dimensions:</p>
-            
-            <h4>The Three Metrics:</h4>
-            <ul>
-                <li><strong>Recency (R):</strong> Days since the customer's last purchase (lower = more recent)</li>
-                <li><strong>Frequency (F):</strong> Number of orders the customer has made</li>
-                <li><strong>Monetary (M):</strong> Total amount the customer has spent</li>
-            </ul>
-            
-            <h4>Business Value:</h4>
-            <p>These metrics help identify your best customers, at-risk customers, and guide marketing strategies.</p>
-        </div>
-        
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Create macro <code>calculate_rfm_metrics()</code></li>
-            <li>Accept parameters for analysis date and lookback period</li>
-            <li>Return raw recency days, frequency count, and monetary value</li>
-            <li>Use in a customer analysis model</li>
-        </ol>
-        
-        <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
-        <div id="solution3" class="solution">
-            <h4>macros/calculate_rfm_metrics.sql</h4>
-            <pre>
-{% macro calculate_rfm_metrics(analysis_date='2018-10-31', lookback_days=365) %}
-
-SELECT 
-    o.customer_id,
-    -- Recency: Days since last purchase (lower is better)
-    '{{ analysis_date }}'::date - MAX(DATE(o.order_purchase_timestamp)) as recency_days,
-    
-    -- Frequency: Number of distinct orders
-    COUNT(DISTINCT o.order_id) as frequency_orders,
-    
-    -- Monetary: Total amount spent
-    SUM(p.payment_value) as monetary_value,
-    
-    '{{ analysis_date }}'::date as analysis_date
-    
-FROM {{ ref('stg_orders') }} o
-INNER JOIN {{ ref('stg_order_payments') }} p
-    ON o.order_id = p.order_id
-WHERE o.order_status NOT IN ('canceled', 'unavailable')
-  AND DATE(o.order_purchase_timestamp) >= ('{{ analysis_date }}'::date - {{ lookback_days }})
-  AND DATE(o.order_purchase_timestamp) <= '{{ analysis_date }}'::date
-GROUP BY o.customer_id
-
-{% endmacro %}</pre>
-            
-            <h4>Using the macro - Create models/intermediate/int_customer_rfm_metrics.sql</h4>
-            <pre>
-{{ config(materialized='table') }}
-
--- Use the RFM macro with different time periods
-{{ calculate_rfm_metrics(
-    analysis_date='2018-10-31',
-    lookback_days=365
-) }}</pre>
-            
-            <h4>Alternative usage with variables:</h4>
-            <pre>
-{{ config(materialized='table') }}
-
-{% set analysis_date = var('rfm_analysis_date', '2018-10-31') %}
-{% set lookback = var('rfm_lookback_days', 365) %}
-
-{{ calculate_rfm_metrics(
-    analysis_date=analysis_date,
-    lookback_days=lookback
-) }}</pre>
-            
-            <h4>Test the RFM metrics:</h4>
-            <pre>
-# Run with default parameters
-dbt run --select int_customer_rfm_metrics
-
-# Test with different analysis date
-dbt run --select int_customer_rfm_metrics --vars '{rfm_analysis_date: "2018-06-30"}'
-
-# Check the results in your database
-# SELECT 
-#     customer_id,
-#     recency_days,
-#     frequency_orders,
-#     monetary_value
-# FROM int_customer_rfm_metrics
-# ORDER BY monetary_value DESC
-# LIMIT 10;</pre>
-            
-            <p><strong>Business Value:</strong></p>
-            <ul>
-                <li><strong>Identify Best Customers:</strong> Low recency + high frequency + high monetary</li>
-                <li><strong>Find At-Risk Customers:</strong> High recency days (haven't purchased recently)</li>
-                <li><strong>Spot Big Spenders:</strong> Sort by monetary_value to find VIP customers</li>
-                <li><strong>Track Engagement:</strong> Monitor frequency_orders over time</li>
-            </ul>
-        </div>
-        
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Add RFM Scoring and Segmentation</h3>
-            <p>Enhance the macro to add:</p>
-            <ul>
-                <li>Calculate quintile scores (1-5) for each metric using NTILE()</li>
-                <li>Create customer segments (Champions, Loyal, At Risk, etc.)</li>
-                <li>Add product category preferences per customer</li>
-                <li>Calculate customer lifetime value (CLV)</li>
-            </ul>
-        </div>
-    </div>
-
     <div class="info-box">
         <h4>📝 What does --full-refresh do?</h4>
         <p>The <code>--full-refresh</code> flag forces dbt to completely rebuild a model from scratch, dropping and recreating the table. This is especially important for incremental models:</p>
@@ -846,9 +686,9 @@ dbt run --select int_customer_rfm_metrics --vars '{rfm_analysis_date: "2018-06-3
         </div>
     </div>
 
-    <!-- Challenge 4: Incremental Models -->
+    <!-- Challenge 3: Incremental Models -->
     <div class="challenge-box">
-        <h2>🎯 Challenge 4: Build and Test Incremental Models</h2>
+        <h2>🎯 Challenge 3: Build and Test Incremental Models</h2>
         <p>Convert your feature models to incremental and learn to test them properly.</p>
         
         <h3>Requirements:</h3>
@@ -862,8 +702,8 @@ dbt run --select int_customer_rfm_metrics --vars '{rfm_analysis_date: "2018-06-3
             <strong>💡 Reminder:</strong> The <code>{{ this }}</code> keyword in dbt refers to the current model's table in the database. When used inside an incremental model, it lets you query the existing table to find the maximum date or other metadata to determine what new data to process.
         </div>
         
-        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
-        <div id="solution4" class="solution">
+        <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
+        <div id="solution3" class="solution">
             <h4>models/intermediate/int_customer_daily_features_inc.sql (Incremental Version)</h4>
             <pre>
 {{ config(
@@ -1034,9 +874,9 @@ cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.
         </div>
     </div>
 
-    <!-- Challenge 5: Late Arriving Events - Ingestion Time Tracking -->
+    <!-- Challenge 4: Late Arriving Events - Ingestion Time Tracking -->
     <div class="challenge-box">
-        <h2>🎯 Challenge 5: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
+        <h2>🎯 Challenge 4: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
         <p>Implement ingestion time tracking for late-arriving data discussed in today's presentation.</p>
         
         <div class="info-box">
@@ -1108,8 +948,8 @@ WHERE order_status != 'unavailable'
             <pre>dbt run --select stg_orders_with_ingestion --full-refresh</pre>
         </div>
         
-        <button class="solution-button" onclick="toggleSolution('solution5')">Show Solution</button>
-        <div id="solution5" class="solution">
+        <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
+        <div id="solution4" class="solution">
             <h4>Build Point-in-Time Correct Features</h4>
             <p><strong>models/intermediate/int_payment_features_ingestion.sql</strong></p>
             <pre>

@@ -45,7 +45,10 @@ fi
 #       - Snapshot models (stg_order_items_snapshot, int_seller_performance)
 #       - Snapshots (snap_seller_tier with 4 time-based iterations)
 #
-#   3 - Session 3: Testing & Production (TBD)
+#   3 - Session 3: Testing & Production (includes Session 1 & 2 + below)
+#       - Seeds (brazil_cities.csv for geographic data)
+#       - Macros (classify_tier for reusable tier logic)
+#       - Customer tiers model (int_customer_tiers using classify_tier macro)
 #
 # NOTES:
 #   - Source data (olist_* tables) is preserved
@@ -64,8 +67,8 @@ if [ -z "$SESSION" ]; then
     echo ""
     echo "Available sessions:"
     echo "  1 - Session 1: dbt Foundations (staging + intermediate models)"
-    echo "  2 - Session 2: Advanced Patterns (variables + snapshots + macros + incremental)"
-    echo "  3 - Session 3: Testing & Production (TBD)"
+    echo "  2 - Session 2: Advanced Patterns (variables + snapshots + incremental)"
+    echo "  3 - Session 3: Testing & Production (seeds + macros + testing)"
     exit 1
 fi
 
@@ -590,8 +593,407 @@ EOF
         ;;
 
     3)
-        echo "Session 3 not yet implemented"
-        exit 1
+        echo ""
+        echo "Step 3: Creating Session 1 + Session 2 + Session 3 models..."
+
+        # Create schema.yml with source definitions (required for all sessions)
+        cat > models/staging/schema.yml << 'EOF'
+version: 2
+
+sources:
+  - name: olist_data
+    schema: olist_data
+    tables:
+      - name: olist_orders
+        columns:
+          - name: order_id
+            description: Unique order identifier
+      - name: olist_customers
+        columns:
+          - name: customer_id
+            description: Unique customer identifier
+      - name: olist_order_items
+        columns:
+          - name: order_id
+            description: Order identifier
+      - name: olist_order_payments
+        columns:
+          - name: order_id
+            description: Order identifier
+EOF
+
+        # Create all Session 1 staging models
+        cat > models/staging/stg_orders.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    order_id,
+    customer_id,
+    order_status,
+    order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    order_approved_at::timestamp as order_approved_at,
+    order_delivered_carrier_date::timestamp as order_delivered_carrier_date,
+    order_delivered_customer_date::timestamp as order_delivered_customer_date,
+    order_estimated_delivery_date::timestamp as order_estimated_delivery_date,
+    DATE(order_purchase_timestamp) as order_date
+FROM {{ source('olist_data', 'olist_orders') }}
+WHERE order_status != 'unavailable'  -- Filter test orders
+  AND order_purchase_timestamp IS NOT NULL
+EOF
+
+        cat > models/staging/stg_customers.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    customer_id,
+    customer_unique_id,
+    customer_zip_code_prefix,
+    customer_city,
+    customer_state
+FROM {{ source('olist_data', 'olist_customers') }}
+WHERE customer_id IS NOT NULL
+EOF
+
+        cat > models/staging/stg_order_items.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    order_id,
+    order_item_id::int as order_item_id,
+    product_id,
+    seller_id,
+    shipping_limit_date::timestamp as shipping_limit_date,
+    price::decimal(10,2) as price,
+    freight_value::decimal(10,2) as freight_value
+FROM {{ source('olist_data', 'olist_order_items') }}
+WHERE order_id IS NOT NULL
+  AND price > 0
+EOF
+
+        cat > models/staging/stg_order_payments.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    order_id,
+    payment_sequential::int as payment_sequential,
+    payment_type,
+    payment_installments::int as payment_installments,
+    payment_value::decimal(10,2) as payment_value
+FROM {{ source('olist_data', 'olist_order_payments') }}
+WHERE order_id IS NOT NULL
+  AND payment_value > 0
+EOF
+
+        # Session 1 intermediate models
+        cat > models/intermediate/int_customer_landing.sql << 'EOF'
+{{ config(materialized='table') }}
+
+WITH first_orders AS (
+    SELECT
+        o.customer_id,
+        MIN(o.order_purchase_timestamp) as first_order_timestamp,
+        DATE(MIN(o.order_purchase_timestamp)) as landing_date
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_customers') }} c
+        ON o.customer_id = c.customer_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY o.customer_id
+)
+
+SELECT
+    customer_id,
+    first_order_timestamp,
+    landing_date,
+    {{ dbt_utils.generate_surrogate_key(['customer_id', 'landing_date']) }} as customer_unique_key
+FROM first_orders
+EOF
+
+        cat > models/intermediate/int_customer_daily_features.sql << 'EOF'
+{{ config(materialized='table') }}
+
+WITH customer_dates AS (
+    -- Generate daily rows for each customer from landing to today
+    SELECT
+        c.customer_id,
+        c.landing_date,
+        d.date_day as date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= '2018-10-31'::date  -- Latest date in dataset
+),
+
+daily_payments AS (
+    -- Calculate daily payment totals per customer
+    SELECT
+        o.customer_id,
+        DATE(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1, 2
+)
+
+SELECT
+    cd.customer_id,
+    cd.date,
+    cd.landing_date,
+
+    -- Cumulative payment value up to this date
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id
+        ORDER BY cd.date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_payment_value,
+
+    -- Days since landing
+    cd.date - cd.landing_date as days_since_landing,
+
+    -- Cumulative order count
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id
+        ORDER BY cd.date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_orders,
+
+    -- Rolling window features for Session 3
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id
+        ORDER BY cd.date
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) as payment_7d,
+
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id
+        ORDER BY cd.date
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) as orders_7d,
+
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id
+        ORDER BY cd.date
+        ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+    ) as payment_14d,
+
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id
+        ORDER BY cd.date
+        ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+    ) as orders_14d
+
+FROM customer_dates cd
+LEFT JOIN daily_payments dp
+    ON cd.customer_id = dp.customer_id
+    AND cd.date = dp.order_date
+EOF
+
+        # Session 2 models
+        cat > models/staging/stg_order_items_snapshot.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    oi.order_id,
+    oi.order_item_id,
+    oi.product_id,
+    oi.seller_id,
+    oi.price::DECIMAL(10,2) as price,
+    oi.freight_value::DECIMAL(10,2) as freight_value,
+    o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    DATE(o.order_purchase_timestamp) as order_date,
+    o.order_status
+FROM {{ source('olist_data', 'olist_order_items') }} oi
+INNER JOIN {{ source('olist_data', 'olist_orders') }} o
+    ON oi.order_id = o.order_id
+WHERE oi.order_id IS NOT NULL
+  AND oi.seller_id IS NOT NULL
+  AND oi.price > 0
+  AND o.order_status NOT IN ('canceled', 'unavailable')
+  AND o.order_purchase_timestamp IS NOT NULL
+EOF
+
+        cat > models/intermediate/int_seller_performance.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Use variable to control analysis date for testing
+{% set snapshot_date = var('snapshot_date', '2018-10-17') %}
+
+WITH seller_metrics AS (
+    SELECT
+        seller_id,
+        COUNT(DISTINCT order_id) as total_orders,
+        COUNT(DISTINCT product_id) as unique_products,
+        SUM(price) as total_revenue,
+        AVG(price) as avg_order_value,
+        MIN(order_date) as first_sale_date,
+        MAX(order_date) as last_sale_date,
+        CURRENT_TIMESTAMP as updated_at
+    FROM {{ ref('stg_order_items_snapshot') }}
+    WHERE order_date <= '{{ snapshot_date }}'::date
+    GROUP BY seller_id
+)
+
+SELECT
+    seller_id,
+
+    -- Use the classify_tier macro for consistent tier logic
+    {{ classify_tier('total_orders', 'volume') }} as seller_tier,
+
+    total_orders,
+    unique_products,
+    total_revenue,
+    avg_order_value,
+    first_sale_date,
+    last_sale_date,
+    updated_at
+FROM seller_metrics
+EOF
+
+        # Session 3: Customer Tiers Model
+        cat > models/intermediate/int_customer_tiers.sql << 'EOF'
+{{ config(materialized='table') }}
+
+WITH customer_metrics AS (
+    SELECT
+        o.customer_id,
+        COUNT(DISTINCT o.order_id) as total_orders,
+        SUM(p.payment_value) as total_revenue,
+        AVG(p.payment_value) as avg_order_value,
+        MIN(DATE(o.order_purchase_timestamp)) as first_order_date,
+        MAX(DATE(o.order_purchase_timestamp)) as last_order_date
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY o.customer_id
+)
+
+SELECT
+    customer_id,
+
+    -- Use the SAME classify_tier macro for customer tiers!
+    {{ classify_tier('total_orders', 'volume') }} as tier_by_volume,
+    {{ classify_tier('total_revenue', 'revenue') }} as tier_by_revenue,
+
+    total_orders,
+    total_revenue,
+    avg_order_value,
+    first_order_date,
+    last_order_date,
+
+    -- Composite tier: take the better of the two
+    CASE
+        WHEN {{ classify_tier('total_orders', 'volume') }} = 'platinum'
+          OR {{ classify_tier('total_revenue', 'revenue') }} = 'platinum' THEN 'platinum'
+        WHEN {{ classify_tier('total_orders', 'volume') }} = 'gold'
+          OR {{ classify_tier('total_revenue', 'revenue') }} = 'gold' THEN 'gold'
+        WHEN {{ classify_tier('total_orders', 'volume') }} = 'silver'
+          OR {{ classify_tier('total_revenue', 'revenue') }} = 'silver' THEN 'silver'
+        ELSE 'bronze'
+    END as composite_tier
+
+FROM customer_metrics
+EOF
+
+        cat > snapshots/snap_seller_tier.sql << 'EOF'
+{% snapshot snap_seller_tier %}
+    {{
+        config(
+          target_schema='olist_data',
+          strategy='timestamp',
+          unique_key='seller_id',
+          updated_at='updated_at',
+        )
+    }}
+
+    SELECT * FROM {{ ref('int_seller_performance') }}
+
+{% endsnapshot %}
+EOF
+
+        # Session 3: Seeds
+        mkdir -p seeds
+        cat > seeds/brazil_cities.csv << 'EOF'
+city,state,region,population_tier,economic_zone,logistics_hub
+São Paulo,SP,Southeast,mega,primary,1
+Rio de Janeiro,RJ,Southeast,mega,primary,1
+Brasília,DF,Central-West,large,primary,1
+Salvador,BA,Northeast,large,secondary,1
+Fortaleza,CE,Northeast,large,secondary,1
+Belo Horizonte,MG,Southeast,large,secondary,1
+Manaus,AM,North,large,tertiary,1
+Curitiba,PR,South,large,secondary,1
+Recife,PE,Northeast,large,secondary,1
+Porto Alegre,RS,South,large,secondary,1
+Belém,PA,North,medium,tertiary,0
+Goiânia,GO,Central-West,medium,tertiary,0
+Guarulhos,SP,Southeast,medium,primary,1
+Campinas,SP,Southeast,medium,primary,1
+São Luís,MA,Northeast,medium,tertiary,0
+EOF
+
+        # Session 3: Tier Classification Macro
+        mkdir -p macros
+        cat > macros/classify_tier.sql << 'EOF'
+{% macro classify_tier(metric_column, tier_type='volume') %}
+    CASE
+        {% if tier_type == 'volume' %}
+            -- Volume-based tiers (order count)
+            WHEN {{ metric_column }} >= 500 THEN 'platinum'
+            WHEN {{ metric_column }} >= 100 THEN 'gold'
+            WHEN {{ metric_column }} >= 20 THEN 'silver'
+            ELSE 'bronze'
+        {% elif tier_type == 'revenue' %}
+            -- Revenue-based tiers (total value)
+            WHEN {{ metric_column }} >= 10000 THEN 'platinum'
+            WHEN {{ metric_column }} >= 5000 THEN 'gold'
+            WHEN {{ metric_column }} >= 1000 THEN 'silver'
+            ELSE 'bronze'
+        {% else %}
+            -- Default to volume if unknown type
+            WHEN {{ metric_column }} >= 500 THEN 'platinum'
+            WHEN {{ metric_column }} >= 100 THEN 'gold'
+            WHEN {{ metric_column }} >= 20 THEN 'silver'
+            ELSE 'bronze'
+        {% endif %}
+    END
+{% endmacro %}
+EOF
+
+        echo "Step 4: Running dbt models..."
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run
+
+        echo ""
+        echo "Step 5: Loading seeds..."
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt seed
+
+        echo ""
+        echo "Step 6: Taking snapshots..."
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2017-01-01"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2017-06-30"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2018-01-31"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt run --select int_seller_performance --vars '{"snapshot_date": "2018-10-17"}'
+        $DOCKER_COMPOSE exec -T dbt-workshop dbt snapshot --select snap_seller_tier
+
+        echo ""
+        echo "✅ Session 3 setup complete!"
+        echo "Created additional models:"
+        echo "  - seeds/brazil_cities.csv"
+        echo "  - macros/classify_tier.sql"
+        echo "  - int_customer_tiers (using classify_tier macro)"
+        echo "  - int_seller_performance (refactored to use classify_tier macro)"
+        echo "Ready for testing challenges!"
         ;;
 
     *)
