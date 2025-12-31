@@ -933,6 +933,58 @@ GROUP BY customer_id</pre>
         </div>
     </div>
 
+    <!-- Target/Compiled Folders -->
+    <div class="info-box">
+        <h2>📂 Understanding dbt's Target Folder</h2>
+        
+        <p>When you run <code>dbt compile</code> or <code>dbt run</code>, dbt generates output files in the <code>target/</code> directory. This folder is your best friend for debugging!</p>
+        
+        <h3>Key Subdirectories:</h3>
+        <table>
+            <tr>
+                <th>Folder</th>
+                <th>Purpose</th>
+                <th>When to Use</th>
+            </tr>
+            <tr>
+                <td><code>target/compiled/</code></td>
+                <td>Contains your SQL files with all Jinja rendered to pure SQL, but <strong>before</strong> any database-specific wrappers are added</td>
+                <td>Debug Jinja logic, see what your loops/conditions produce</td>
+            </tr>
+            <tr>
+                <td><code>target/run/</code></td>
+                <td>Contains the <strong>actual SQL</strong> that was executed against your database (includes CREATE TABLE, DDL statements)</td>
+                <td>Debug database errors, see exact executed queries</td>
+            </tr>
+            <tr>
+                <td><code>target/manifest.json</code></td>
+                <td>Complete representation of your dbt project (models, tests, sources, dependencies)</td>
+                <td>CI/CD pipelines, documentation generation</td>
+            </tr>
+        </table>
+        
+        <h3>Example Workflow:</h3>
+        <pre>
+# 1. Write your Jinja-templated SQL
+{% for days in [3, 7, 14] %}
+    payment_{{ days }}d,
+{% endfor %}
+
+# 2. Run dbt compile
+dbt compile --select my_model
+
+# 3. Check target/compiled/your_project/models/my_model.sql
+# You'll see the rendered SQL:
+    payment_3d,
+    payment_7d,
+    payment_14d,
+        </pre>
+        
+        <div class="warning-box">
+            <strong>💡 Pro Tip:</strong> When your Jinja produces unexpected SQL, always check <code>target/compiled/</code> first! It shows exactly what dbt generated before running it.
+        </div>
+    </div>
+
     <!-- Jinja Introduction -->
     <div class="info-box">
         <h2>🎨 Jinja Templating in dbt</h2>
