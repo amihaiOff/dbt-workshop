@@ -365,6 +365,7 @@
                     <li class="toc-challenge"><a href="#challenge-3">🎯 Challenge 3: Hooks</a></li>
                     <li class="toc-challenge"><a href="#challenge-4">🎯 Challenge 4: Schema Tests</a></li>
                     <li class="toc-challenge"><a href="#challenge-5">🎯 Challenge 5: Unit Tests</a></li>
+                    <li class="toc-challenge"><a href="#challenge-5b">🎯 Challenge 5b: Incremental Testing</a></li>
                     <li class="toc-challenge toc-optional"><a href="#challenge-6">🎯 Challenge 6: Freshness (Optional)</a></li>
                     
                     <li class="toc-section">Concepts</li>
@@ -1367,47 +1368,205 @@ dbt test --select test_stg_orders_filtering_and_dates --verbose</pre>
             </div>
         </div>
         
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Unit Test for Incremental Model</h3>
-            <p>Test your incremental model <code>int_customer_daily_features_inc</code> from Session 2. Incremental model tests are different because you need to test BOTH the initial load AND incremental behavior.</p>
+    </div>
+    
+    <!-- Challenge 5b: Incremental Model Testing -->
+    <div id="challenge-5b" class="challenge-box">
+        <h2>🎯 Challenge 5b: Test Incremental Model Behavior</h2>
+        <p>Verify that your incremental model <code>int_customer_daily_features_inc</code> correctly processes only new data during incremental runs.</p>
 
-            <h4>Key Differences for Incremental Unit Tests:</h4>
+        <div class="info-box">
+            <h3>🔍 The Testing Challenge</h3>
+            <p>Incremental models behave differently on full refresh vs incremental runs. You need to verify:</p>
             <ul>
-                <li><strong>Test Initial Load:</strong> Verify behavior when table doesn't exist (full refresh)</li>
-                <li><strong>Test Incremental Logic:</strong> Mock existing table data and verify only new rows are processed</li>
-                <li><strong>Test Lookback Windows:</strong> Ensure incremental runs include proper lookback period</li>
-                <li><strong>Verify is_incremental():</strong> Confirm the conditional logic works correctly</li>
+                <li><strong>Full Refresh:</strong> All rows are processed and have the same timestamp</li>
+                <li><strong>Incremental Run:</strong> Only new rows are processed with a newer timestamp</li>
             </ul>
+            <p><strong>Key Insight:</strong> Add an <code>updated_at</code> column with <code>CURRENT_TIMESTAMP</code> to track when each row was processed!</p>
+        </div>
 
-            <h4>How to Test Incremental Models:</h4>
-            <p>In your unit test, you can provide the model's previous state using the <code>this</code> input:</p>
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Add an <code>updated_at</code> column to <code>int_customer_daily_features_inc</code> that captures <code>CURRENT_TIMESTAMP</code></li>
+            <li>Run a full refresh with a limited date range (e.g., <code>max_date: "2017-01-31"</code>)</li>
+            <li>Verify all rows have the same <code>updated_at</code> value</li>
+            <li>Run an incremental update with a larger date range (e.g., <code>max_date: "2017-02-28"</code>)</li>
+            <li>Verify that new rows have a different (newer) <code>updated_at</code> value than existing rows</li>
+        </ol>
+
+        <div class="warning-box">
+            <h4>💡 Hint: The updated_at Column</h4>
+            <p>Add this column to your SELECT statement in <code>int_customer_daily_features_inc.sql</code>:</p>
+            <pre>CURRENT_TIMESTAMP as updated_at</pre>
+            <p>This creates a "watermark" - all rows from the same run will have identical timestamps, making it easy to distinguish between full refresh rows and incrementally added rows.</p>
+        </div>
+
+        <button class="solution-button" onclick="toggleSolution('solution5b')">Show Solution</button>
+        <div id="solution5b" class="solution">
+            <h4>Step 1: Update the incremental model to include updated_at</h4>
+            <p><strong>Edit models/intermediate/int_customer_daily_features_inc.sql</strong> - add the updated_at column:</p>
             <pre>
-unit_tests:
-  - name: test_incremental_behavior
-    model: int_customer_daily_features_inc
-    given:
-      # Mock the EXISTING table state (what's already in {{ this }})
-      - input: this
-        rows:
-          - {customer_id: "c1", date: "2017-01-01", total_orders: 1}
-          - {customer_id: "c1", date: "2017-01-02", total_orders: 1}
+{{ config(
+    materialized='incremental',
+    unique_key=['customer_id', 'date'],
+    incremental_strategy='merge'
+) }}
 
-      # Provide new source data
-      - input: ref('stg_orders')
-        rows:
-          - {customer_id: "c1", order_id: "o_new", order_purchase_timestamp: "2017-01-03 10:00:00"}
+{% set max_date = var('max_date', '2018-10-31') %}
 
-    expect:
-      # Verify incremental run only processes new date
-      rows:
-        - {customer_id: "c1", date: "2017-01-03", total_orders: 2}</pre>
+WITH customer_dates AS (
+    SELECT 
+        c.customer_id,
+        c.landing_date,
+        d.date_day as date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= '{{ max_date }}'::date
+      
+    {% if is_incremental() %}
+      AND d.date_day >= (
+        SELECT MAX(date) - INTERVAL '14 days'
+        FROM {{ this }}
+      )
+    {% endif %}
+),
 
-            <p><strong>Try creating a unit test that:</strong></p>
+daily_payments AS (
+    SELECT
+        o.customer_id,
+        DATE(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    
+    {% if is_incremental() %}
+      AND DATE(o.order_purchase_timestamp) >= (
+        SELECT MAX(date) - INTERVAL '14 days'
+        FROM {{ this }}
+      )
+    {% endif %}
+    
+    GROUP BY 1, 2
+)
+
+SELECT
+    cd.customer_id,
+    cd.date,
+    cd.landing_date,
+    
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_payment_value,
+    
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_orders,
+    
+    cd.date - cd.landing_date as days_since_landing,
+    
+    -- Track when this row was processed
+    CURRENT_TIMESTAMP as updated_at
+    
+FROM customer_dates cd
+LEFT JOIN daily_payments dp
+    ON cd.customer_id = dp.customer_id
+    AND cd.date = dp.order_date</pre>
+
+            <h4>Step 2: Run full refresh with limited data</h4>
+            <pre>
+# Full refresh - all rows get the same updated_at
+dbt run --select int_customer_daily_features_inc --full-refresh \
+  --vars '{max_date: "2017-01-31"}'
+
+# Verify all rows have the same updated_at
+SELECT 
+    updated_at,
+    COUNT(*) as row_count,
+    MIN(date) as min_date,
+    MAX(date) as max_date
+FROM int_customer_daily_features_inc
+GROUP BY updated_at
+ORDER BY updated_at;</pre>
+
+            <h4>Expected Result After Full Refresh:</h4>
+            <pre>
+      updated_at          | row_count | min_date   | max_date
+--------------------------+-----------+------------+------------
+ 2025-01-15 10:30:00.123  |    15420  | 2016-09-04 | 2017-01-31
+(1 row)  -- All rows have the SAME timestamp!</pre>
+
+            <h4>Step 3: Run incremental update with more data</h4>
+            <pre>
+# Wait a few seconds, then run incremental (no --full-refresh)
+dbt run --select int_customer_daily_features_inc \
+  --vars '{max_date: "2017-02-28"}'
+
+# Check updated_at distribution - should see TWO different timestamps
+SELECT 
+    updated_at,
+    COUNT(*) as row_count,
+    MIN(date) as min_date,
+    MAX(date) as max_date
+FROM int_customer_daily_features_inc
+GROUP BY updated_at
+ORDER BY updated_at;</pre>
+
+            <h4>Expected Result After Incremental Run:</h4>
+            <pre>
+      updated_at          | row_count | min_date   | max_date
+--------------------------+-----------+------------+------------
+ 2025-01-15 10:30:00.123  |    15420  | 2016-09-04 | 2017-01-31  -- Original rows
+ 2025-01-15 10:35:00.456  |     8234  | 2017-01-18 | 2017-02-28  -- NEW rows!
+(2 rows)  -- Two different timestamps prove incremental behavior!</pre>
+
+            <div class="info-box">
+                <h3>✨ What This Proves:</h3>
+                <ul>
+                    <li><strong>Different timestamps:</strong> Rows were processed at different times</li>
+                    <li><strong>Date overlap:</strong> The lookback window (14 days) caused some dates to be reprocessed (2017-01-18 to 2017-01-31)</li>
+                    <li><strong>New data added:</strong> February dates only appear in the second batch</li>
+                    <li><strong>Incremental is working:</strong> Not all data was reprocessed!</li>
+                </ul>
+            </div>
+
+            <h4>Step 4: Verify the lookback window is working</h4>
+            <pre>
+# Check that dates near the boundary were updated (lookback window effect)
+SELECT 
+    date,
+    COUNT(*) as customer_count,
+    MIN(updated_at) as oldest_update,
+    MAX(updated_at) as newest_update
+FROM int_customer_daily_features_inc
+WHERE date BETWEEN '2017-01-17' AND '2017-02-05'
+GROUP BY date
+ORDER BY date;
+
+# Dates in the lookback window should have the NEWER timestamp
+# Dates before the lookback should have the OLDER timestamp</pre>
+        </div>
+
+        <div class="optional-challenge">
+            <h3>🌟 Optional Challenge: Automated Incremental Verification</h3>
+            <p>Create a custom test that automatically verifies incremental behavior:</p>
             <ul>
-                <li>Mocks existing data in the incremental table (using <code>input: this</code>)</li>
-                <li>Provides new orders in <code>stg_orders</code></li>
-                <li>Verifies the lookback window works (processes last 7 days even if incremental)</li>
-                <li>Confirms new features are calculated correctly</li>
+                <li>Check that after an incremental run, not all rows have the same <code>updated_at</code></li>
+                <li>Verify the lookback window is being applied correctly</li>
+                <li>Alert if incremental mode accidentally does a full table scan</li>
             </ul>
         </div>
     </div>
