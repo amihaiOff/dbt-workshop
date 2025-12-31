@@ -919,6 +919,91 @@ EOF
 {% endsnapshot %}
 EOF
 
+        # Session 2 incremental model (carried forward to Session 3)
+        cat > models/intermediate/int_customer_daily_features_inc.sql << 'EOF'
+{{ config(
+    materialized='incremental',
+    unique_key=['customer_id', 'date'],
+    incremental_strategy='merge'
+) }}
+
+{% set max_date = var('max_date', '2018-10-31') %}
+
+WITH customer_dates AS (
+    SELECT 
+        c.customer_id,
+        c.landing_date,
+        d.date_day as date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= '{{ max_date }}'::date
+      
+    {% if is_incremental() %}
+      -- Only process recent feature dates for incremental runs
+      AND d.date_day >= (
+        SELECT MAX(date) - INTERVAL '14 days'
+        FROM {{ this }}
+      )
+    {% endif %}
+),
+
+daily_payments AS (
+    SELECT
+        o.customer_id,
+        DATE(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    
+    {% if is_incremental() %}
+      -- Look back for late-arriving data
+      AND DATE(o.order_purchase_timestamp) >= (
+        SELECT MAX(date) - INTERVAL '14 days'
+        FROM {{ this }}
+      )
+    {% endif %}
+    
+    GROUP BY 1, 2
+)
+
+SELECT
+    cd.customer_id,
+    cd.date,
+    cd.landing_date,
+    
+    -- Cumulative payment value
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_payment_value,
+    
+    -- Cumulative order count
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_orders,
+    
+    -- Days since landing
+    cd.date - cd.landing_date as days_since_landing
+    
+FROM customer_dates cd
+LEFT JOIN daily_payments dp
+    ON cd.customer_id = dp.customer_id
+    AND cd.date = dp.order_date
+EOF
+
         # Session 3: Seeds
         mkdir -p seeds
         cat > seeds/brazil_cities.csv << 'EOF'
@@ -992,6 +1077,7 @@ EOF
         echo "  - seeds/brazil_cities.csv"
         echo "  - macros/classify_tier.sql"
         echo "  - int_customer_tiers (using classify_tier macro)"
+        echo "  - int_customer_daily_features_inc (incremental version)"
         echo "  - int_seller_performance (refactored to use classify_tier macro)"
         echo "Ready for testing challenges!"
         ;;
