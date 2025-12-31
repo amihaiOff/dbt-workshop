@@ -133,8 +133,172 @@
             padding: 2px 4px;
             border-radius: 3px;
         }
+        
+        /* Floating TOC Sidebar */
+        .toc-sidebar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+        
+        .toc-toggle-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        
+        .toc-toggle-btn:hover {
+            background-color: #2980b9;
+            transform: scale(1.05);
+        }
+        
+        .toc-panel {
+            display: none;
+            position: absolute;
+            top: 50px;
+            right: 0;
+            width: 320px;
+            max-height: 80vh;
+            background-color: #fff;
+            border: 2px solid #3498db;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .toc-panel.show {
+            display: block;
+        }
+        
+        .toc-panel-header {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 16px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .toc-close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .toc-close-btn:hover {
+            opacity: 0.8;
+        }
+        
+        .toc-panel-content {
+            padding: 12px 16px;
+            max-height: calc(80vh - 50px);
+            overflow-y: auto;
+        }
+        
+        .toc-panel-content ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .toc-panel-content li {
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .toc-panel-content li:last-child {
+            border-bottom: none;
+        }
+        
+        .toc-panel-content a {
+            color: #34495e;
+            text-decoration: none;
+            display: block;
+            transition: color 0.2s;
+        }
+        
+        .toc-panel-content a:hover {
+            color: #3498db;
+        }
+        
+        .toc-section {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 2px solid #3498db;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .toc-section:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        
+        .toc-challenge {
+            padding-left: 15px;
+        }
+        
+        .toc-challenge a {
+            color: #27ae60;
+        }
+        
+        .toc-challenge a:hover {
+            color: #1e8449;
+        }
+        
+        @media (max-width: 768px) {
+            .toc-sidebar {
+                top: 10px;
+                right: 10px;
+            }
+            
+            .toc-panel {
+                width: 280px;
+                max-height: 70vh;
+            }
+        }
     </style>
     <script>
+        function toggleTOC() {
+            var panel = document.getElementById('toc-panel');
+            panel.classList.toggle('show');
+        }
+        
+        function closeTOC() {
+            var panel = document.getElementById('toc-panel');
+            panel.classList.remove('show');
+        }
+        
+        // Close TOC when clicking on a link
+        document.addEventListener('DOMContentLoaded', function() {
+            var tocLinks = document.querySelectorAll('.toc-panel-content a');
+            tocLinks.forEach(function(link) {
+                link.addEventListener('click', function() {
+                    closeTOC();
+                });
+            });
+        });
+        
         function toggleSolution(id) {
             var solution = document.getElementById(id);
             var button = event.target;
@@ -169,7 +333,42 @@
         <p><strong>Goal:</strong> Build the foundation of a feature engineering pipeline for customer churn prediction</p>
     </div>
 
-    <h2>📦 About the Olist Dataset</h2>
+    <!-- Floating TOC Sidebar -->
+    <div class="toc-sidebar">
+        <button class="toc-toggle-btn" onclick="toggleTOC()">
+            📑 Contents
+        </button>
+        <div id="toc-panel" class="toc-panel">
+            <div class="toc-panel-header">
+                <span>📑 Table of Contents</span>
+                <button class="toc-close-btn" onclick="closeTOC()">×</button>
+            </div>
+            <div class="toc-panel-content">
+                <ul>
+                    <li class="toc-section">Background & Setup</li>
+                    <li><a href="#olist-dataset">📦 About the Olist Dataset</a></li>
+                    <li><a href="#business-context">📊 Business Context</a></li>
+                    <li><a href="#project-structure">🏗️ Project Structure</a></li>
+                    <li><a href="#dbt-internals">🔧 dbt Internals</a></li>
+                    
+                    <li class="toc-section">Challenges</li>
+                    <li class="toc-challenge"><a href="#challenge-1">🎯 Challenge 1: Staging Tables</a></li>
+                    <li class="toc-challenge"><a href="#challenge-2">🎯 Challenge 2: Entity Landing</a></li>
+                    <li class="toc-challenge"><a href="#challenge-3">🎯 Challenge 3: Feature Table</a></li>
+                    <li class="toc-challenge"><a href="#challenge-4">🎯 Challenge 4: Jinja Features</a></li>
+                    
+                    <li class="toc-section">Concepts</li>
+                    <li><a href="#target-folder">📂 Target Folder</a></li>
+                    <li><a href="#jinja-templating">🎨 Jinja Templating</a></li>
+                    
+                    <li class="toc-section">Wrap-up</li>
+                    <li><a href="#session-complete">🎉 Session Complete!</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <h2 id="olist-dataset">📦 About the Olist Dataset</h2>
 
     <div class="info-box">
         <h3>Dataset Overview</h3>
@@ -216,7 +415,7 @@
         <p><strong>Data Source:</strong> <a href="https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce" target="_blank">Kaggle - Brazilian E-Commerce Dataset by Olist</a></p>
     </div>
 
-    <h2>📊 Business Context: Customer Churn Prediction</h2>
+    <h2 id="business-context">📊 Business Context: Customer Churn Prediction</h2>
     
     <div class="info-box">
         <h3>The Problem We're Solving</h3>
@@ -257,7 +456,7 @@
         </table>
     </div>
 
-    <h2>🏗️ Project Structure</h2>
+    <h2 id="project-structure">🏗️ Project Structure</h2>
     
     <div class="info-box">
         <h3>dbt Project Organization</h3>
@@ -288,7 +487,7 @@ your_project/
         </ul>
     </div>
 
-    <h2>🔧 dbt Internals</h2>
+    <h2 id="dbt-internals">🔧 dbt Internals</h2>
     
     <div class="info-box">
         <h3>Essential dbt Functions</h3>
@@ -493,7 +692,7 @@ sources:
       </div>
 
     <!-- Challenge 1 -->
-    <div class="challenge-box">
+    <div id="challenge-1" class="challenge-box">
         <h2>🎯 Challenge 1: Create Staging Tables</h2>
         <p>Create clean staging tables for the Olist data. Focus on type casting and cleaning.</p>
         
@@ -609,7 +808,7 @@ WHERE order_id IS NOT NULL
     </div>
 
     <!-- Challenge 2 -->
-    <div class="challenge-box">
+    <div id="challenge-2" class="challenge-box">
         <h2>🎯 Challenge 2: Create Entity Landing Table</h2>
         <p>Create an intermediate table that identifies when each customer "landed" (made their first purchase).</p>
         
@@ -719,7 +918,7 @@ FROM first_orders</pre>
     </div>
 
     <!-- Challenge 3 -->
-    <div class="challenge-box">
+    <div id="challenge-3" class="challenge-box">
         <h2>🎯 Challenge 3: Create Entity-Centric Feature Table</h2>
         <p>Build a daily feature table that tracks cumulative payments for each customer since landing.</p>
         
@@ -934,7 +1133,7 @@ GROUP BY customer_id</pre>
     </div>
 
     <!-- Target/Compiled Folders -->
-    <div class="info-box">
+    <div id="target-folder" class="info-box">
         <h2>📂 Understanding dbt's Target Folder</h2>
         
         <p>When you run <code>dbt compile</code> or <code>dbt run</code>, dbt generates output files in the <code>target/</code> directory. This folder is your best friend for debugging!</p>
@@ -986,7 +1185,7 @@ dbt compile --select my_model
     </div>
 
     <!-- Jinja Introduction -->
-    <div class="info-box">
+    <div id="jinja-templating" class="info-box">
         <h2>🎨 Jinja Templating in dbt</h2>
         
         <h3>Basic Jinja Syntax:</h3>
@@ -1018,7 +1217,7 @@ dbt compile --select my_model
     </div>
 
     <!-- Challenge 4 -->
-    <div class="challenge-box">
+    <div id="challenge-4" class="challenge-box">
         <h2>🎯 Challenge 4: Dynamic Feature Generation with Jinja</h2>
         <p>Extend the daily features table with rolling window payment sums using Jinja macros.</p>
         
@@ -1141,7 +1340,7 @@ SELECT * FROM features</pre>
     </div>
 
     <!-- Summary -->
-    <div class="info-box">
+    <div id="session-complete" class="info-box">
         <h2>🎉 Session 1 Complete!</h2>
         
         <h3>What You've Built:</h3>

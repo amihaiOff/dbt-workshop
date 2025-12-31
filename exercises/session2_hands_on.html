@@ -141,8 +141,172 @@
             margin: 20px 0;
             border-radius: 8px;
         }
+        
+        /* Floating TOC Sidebar */
+        .toc-sidebar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+        
+        .toc-toggle-btn {
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        
+        .toc-toggle-btn:hover {
+            background-color: #c0392b;
+            transform: scale(1.05);
+        }
+        
+        .toc-panel {
+            display: none;
+            position: absolute;
+            top: 50px;
+            right: 0;
+            width: 320px;
+            max-height: 80vh;
+            background-color: #fff;
+            border: 2px solid #e74c3c;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .toc-panel.show {
+            display: block;
+        }
+        
+        .toc-panel-header {
+            background-color: #e74c3c;
+            color: white;
+            padding: 12px 16px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .toc-close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .toc-close-btn:hover {
+            opacity: 0.8;
+        }
+        
+        .toc-panel-content {
+            padding: 12px 16px;
+            max-height: calc(80vh - 50px);
+            overflow-y: auto;
+        }
+        
+        .toc-panel-content ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .toc-panel-content li {
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .toc-panel-content li:last-child {
+            border-bottom: none;
+        }
+        
+        .toc-panel-content a {
+            color: #34495e;
+            text-decoration: none;
+            display: block;
+            transition: color 0.2s;
+        }
+        
+        .toc-panel-content a:hover {
+            color: #e74c3c;
+        }
+        
+        .toc-section {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 2px solid #e74c3c;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .toc-section:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        
+        .toc-challenge {
+            padding-left: 15px;
+        }
+        
+        .toc-challenge a {
+            color: #27ae60;
+        }
+        
+        .toc-challenge a:hover {
+            color: #1e8449;
+        }
+        
+        @media (max-width: 768px) {
+            .toc-sidebar {
+                top: 10px;
+                right: 10px;
+            }
+            
+            .toc-panel {
+                width: 280px;
+                max-height: 70vh;
+            }
+        }
     </style>
     <script>
+        function toggleTOC() {
+            var panel = document.getElementById('toc-panel');
+            panel.classList.toggle('show');
+        }
+        
+        function closeTOC() {
+            var panel = document.getElementById('toc-panel');
+            panel.classList.remove('show');
+        }
+        
+        // Close TOC when clicking on a link
+        document.addEventListener('DOMContentLoaded', function() {
+            var tocLinks = document.querySelectorAll('.toc-panel-content a');
+            tocLinks.forEach(function(link) {
+                link.addEventListener('click', function() {
+                    closeTOC();
+                });
+            });
+        });
+        
         function toggleSolution(id) {
             var solution = document.getElementById(id);
             var button = event.target;
@@ -159,13 +323,46 @@
 <body>
     <h1>🚀 Session 2: Advanced Patterns - Hands-on Exercises</h1>
     
+    <!-- Floating TOC Sidebar -->
+    <div class="toc-sidebar">
+        <button class="toc-toggle-btn" onclick="toggleTOC()">
+            📑 Contents
+        </button>
+        <div id="toc-panel" class="toc-panel">
+            <div class="toc-panel-header">
+                <span>📑 Table of Contents</span>
+                <button class="toc-close-btn" onclick="closeTOC()">×</button>
+            </div>
+            <div class="toc-panel-content">
+                <ul>
+                    <li class="toc-section">Setup</li>
+                    <li><a href="#recap">📋 Quick Recap</a></li>
+                    <li><a href="#variables">🔧 Variables in dbt</a></li>
+                    
+                    <li class="toc-section">Challenges</li>
+                    <li class="toc-challenge"><a href="#challenge-1">🎯 Challenge 1: Variable Hierarchy</a></li>
+                    <li class="toc-challenge"><a href="#challenge-2">🎯 Challenge 2: Seller Snapshots</a></li>
+                    <li class="toc-challenge"><a href="#challenge-3">🎯 Challenge 3: Incremental Models</a></li>
+                    <li class="toc-challenge"><a href="#challenge-4">🎯 Challenge 4: Late-Arriving Data</a></li>
+                    
+                    <li class="toc-section">Concepts</li>
+                    <li><a href="#scd-type2">📸 SCD Type 2</a></li>
+                    <li><a href="#incremental-models">📈 Incremental Models</a></li>
+                    
+                    <li class="toc-section">Wrap-up</li>
+                    <li><a href="#session-complete">🎉 Session Complete!</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
     <div class="info-box">
         <h3>⏱️ Duration: 1-1.5 hours</h3>
         <p><strong>Prerequisites:</strong> Completed Session 1 models running successfully</p>
         <p><strong>Goal:</strong> Add advanced features: snapshots, incremental models, macros, and late-arriving data handling</p>
     </div>
 
-    <div class="recap-box">
+    <div id="recap" class="recap-box">
         <h2>📋 Quick Recap from Session 1</h2>
         <p><strong>What We Built:</strong></p>
         <ul>
@@ -185,7 +382,7 @@
         <p><strong>⚠️ Use Wisely:</strong> The reset script will overwrite any custom work or bonus challenges you've completed. Make sure to save any extra code you want to keep before running it!</p>
     </div>
 
-    <h2>🔧 Variables in dbt</h2>
+    <h2 id="variables">🔧 Variables in dbt</h2>
     
     <div class="info-box">
         <h3>Understanding dbt Variables Hierarchy</h3>
@@ -218,7 +415,7 @@ dbt run --vars '{lookback_days: [7, 14, 30], churn_threshold: 120}'
     </div>
 
     <!-- Challenge 1: Variables - ENHANCED -->
-    <div class="challenge-box">
+    <div id="challenge-1" class="challenge-box">
         <h2>🎯 Challenge 1: Master Variable Hierarchy</h2>
         <p>Learn how dbt resolves variables from different sources and test the hierarchy in action.</p>
         
@@ -369,7 +566,7 @@ dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
         </div>
     </div>
 
-    <h2>📸 Slowly Changing Dimensions (SCD) Type 2</h2>
+    <h2 id="scd-type2">📸 Slowly Changing Dimensions (SCD) Type 2</h2>
 
     <div class="info-box">
         <h3>Understanding SCD Type 2 with dbt Snapshots</h3>
@@ -406,7 +603,7 @@ S001      | gold        | 12000         | 2018-01-15     | NULL</pre>
     </div>
 
     <!-- Challenge 2: SCD Type 2 - NEW SELLER TIER VERSION -->
-    <div class="challenge-box">
+    <div id="challenge-2" class="challenge-box">
         <h2>🎯 Challenge 2: Track Seller Performance with Snapshots</h2>
         <p>Build a complete SCD Type 2 solution to track how sellers grow from bronze → silver → gold → platinum tier over time.</p>
 
@@ -658,7 +855,7 @@ ORDER BY dbt_valid_from;</pre>
         <p><strong>With --full-refresh:</strong> The model behaves like a regular table materialization, processing all data from scratch.</p>
     </div>
 
-    <h2>📈 Incremental Models - The Production Game Changer</h2>
+    <h2 id="incremental-models">📈 Incremental Models - The Production Game Changer</h2>
     
     <div class="info-box">
         <h3>Understanding Incremental Models from Session 2 Presentation</h3>
@@ -687,7 +884,7 @@ ORDER BY dbt_valid_from;</pre>
     </div>
 
     <!-- Challenge 3: Incremental Models -->
-    <div class="challenge-box">
+    <div id="challenge-3" class="challenge-box">
         <h2>🎯 Challenge 3: Build and Test Incremental Models</h2>
         <p>Convert your feature models to incremental and learn to test them properly.</p>
         
@@ -875,7 +1072,7 @@ cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.
     </div>
 
     <!-- Challenge 4: Late Arriving Events - Ingestion Time Tracking -->
-    <div class="challenge-box">
+    <div id="challenge-4" class="challenge-box">
         <h2>🎯 Challenge 4: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
         <p>Implement ingestion time tracking for late-arriving data discussed in today's presentation.</p>
         
@@ -1041,7 +1238,7 @@ dbt run --select int_payment_features_ingestion
     </div>
 
     <!-- Summary -->
-    <div class="info-box">
+    <div id="session-complete" class="info-box">
         <h2>🎉 Session 2 Complete!</h2>
         
         <h3>What You've Built:</h3>

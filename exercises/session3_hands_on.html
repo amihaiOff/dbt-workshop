@@ -157,8 +157,177 @@
             margin: 15px 0;
             border-radius: 8px;
         }
+        
+        /* Floating TOC Sidebar */
+        .toc-sidebar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+        
+        .toc-toggle-btn {
+            background-color: #9b59b6;
+            color: white;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        
+        .toc-toggle-btn:hover {
+            background-color: #8e44ad;
+            transform: scale(1.05);
+        }
+        
+        .toc-panel {
+            display: none;
+            position: absolute;
+            top: 50px;
+            right: 0;
+            width: 320px;
+            max-height: 80vh;
+            background-color: #fff;
+            border: 2px solid #9b59b6;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .toc-panel.show {
+            display: block;
+        }
+        
+        .toc-panel-header {
+            background-color: #9b59b6;
+            color: white;
+            padding: 12px 16px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .toc-close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .toc-close-btn:hover {
+            opacity: 0.8;
+        }
+        
+        .toc-panel-content {
+            padding: 12px 16px;
+            max-height: calc(80vh - 50px);
+            overflow-y: auto;
+        }
+        
+        .toc-panel-content ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .toc-panel-content li {
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .toc-panel-content li:last-child {
+            border-bottom: none;
+        }
+        
+        .toc-panel-content a {
+            color: #34495e;
+            text-decoration: none;
+            display: block;
+            transition: color 0.2s;
+        }
+        
+        .toc-panel-content a:hover {
+            color: #9b59b6;
+        }
+        
+        .toc-section {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 2px solid #9b59b6;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .toc-section:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        
+        .toc-challenge {
+            padding-left: 15px;
+        }
+        
+        .toc-challenge a {
+            color: #27ae60;
+        }
+        
+        .toc-challenge a:hover {
+            color: #1e8449;
+        }
+        
+        .toc-optional a {
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        @media (max-width: 768px) {
+            .toc-sidebar {
+                top: 10px;
+                right: 10px;
+            }
+            
+            .toc-panel {
+                width: 280px;
+                max-height: 70vh;
+            }
+        }
     </style>
     <script>
+        function toggleTOC() {
+            var panel = document.getElementById('toc-panel');
+            panel.classList.toggle('show');
+        }
+        
+        function closeTOC() {
+            var panel = document.getElementById('toc-panel');
+            panel.classList.remove('show');
+        }
+        
+        // Close TOC when clicking on a link
+        document.addEventListener('DOMContentLoaded', function() {
+            var tocLinks = document.querySelectorAll('.toc-panel-content a');
+            tocLinks.forEach(function(link) {
+                link.addEventListener('click', function() {
+                    closeTOC();
+                });
+            });
+        });
+        
         function toggleSolution(id) {
             var solution = document.getElementById(id);
             var button = event.target;
@@ -175,6 +344,41 @@
 <body>
     <h1>🚀 Session 3: Testing & Production - Hands-on Exercises</h1>
     
+    <!-- Floating TOC Sidebar -->
+    <div class="toc-sidebar">
+        <button class="toc-toggle-btn" onclick="toggleTOC()">
+            📑 Contents
+        </button>
+        <div id="toc-panel" class="toc-panel">
+            <div class="toc-panel-header">
+                <span>📑 Table of Contents</span>
+                <button class="toc-close-btn" onclick="closeTOC()">×</button>
+            </div>
+            <div class="toc-panel-content">
+                <ul>
+                    <li class="toc-section">Setup</li>
+                    <li><a href="#recap">📋 Quick Recap</a></li>
+                    
+                    <li class="toc-section">Challenges</li>
+                    <li class="toc-challenge"><a href="#challenge-1">🎯 Challenge 1: Seeds</a></li>
+                    <li class="toc-challenge"><a href="#challenge-2">🎯 Challenge 2: Tier Macros</a></li>
+                    <li class="toc-challenge"><a href="#challenge-3">🎯 Challenge 3: Hooks</a></li>
+                    <li class="toc-challenge"><a href="#challenge-4">🎯 Challenge 4: Schema Tests</a></li>
+                    <li class="toc-challenge"><a href="#challenge-5">🎯 Challenge 5: Unit Tests</a></li>
+                    <li class="toc-challenge toc-optional"><a href="#challenge-6">🎯 Challenge 6: Freshness (Optional)</a></li>
+                    
+                    <li class="toc-section">Concepts</li>
+                    <li><a href="#macros">🎭 Macros in dbt</a></li>
+                    <li><a href="#hooks">🪝 Production Hooks</a></li>
+                    <li><a href="#tests">🧪 Understanding dbt Tests</a></li>
+                    
+                    <li class="toc-section">Wrap-up</li>
+                    <li><a href="#session-complete">🎉 Session Complete!</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
     <div class="info-box">
         <h3>⏱️ Duration: 45-60 minutes</h3>
         <p><strong>Prerequisites:</strong> Completed Session 1 & 2 models</p>
@@ -182,7 +386,7 @@
         <p><strong>Note:</strong> Shorter session to leave time for Feast production discussion</p>
     </div>
 
-    <div class="recap-box">
+    <div id="recap" class="recap-box">
         <h2>📋 Quick Recap from Sessions 1-2</h2>
         <p><strong>What We've Built:</strong></p>
         <ul>
@@ -203,7 +407,7 @@
     </div>
 
     <!-- Challenge 1: Seeds for Reference Data -->
-    <div class="challenge-box">
+    <div id="challenge-1" class="challenge-box">
         <h2>🎯 Challenge 1: Seeds for Business Logic</h2>
         <p>Use seed files to manage reference data that enriches your ML features with geographic information.</p>
 
@@ -383,7 +587,7 @@ FROM mart_customer_features_enriched;</pre>
         </div>
     </div>
 
-    <h2>🎭 Macros in dbt</h2>
+    <h2 id="macros">🎭 Macros in dbt</h2>
 
     <div class="info-box">
         <h3>Understanding Macros - You've Already Used Them!</h3>
@@ -426,7 +630,7 @@ FROM payments</pre>
     </div>
 
     <!-- Challenge 2: Macros - Tier Classification -->
-    <div class="challenge-box">
+    <div id="challenge-2" class="challenge-box">
         <h2>🎯 Challenge 2: Create Reusable Tier Classification Macro</h2>
         <p>Build a macro to standardize tier classification logic across different entities - turning the seller tier logic from Session 2 into reusable code.</p>
 
@@ -676,7 +880,7 @@ ORDER BY
         </div>
     </div>
 
-    <h2>🪝 Production Hooks - Automating Data Quality Monitoring</h2>
+    <h2 id="hooks">🪝 Production Hooks - Automating Data Quality Monitoring</h2>
 
     <div class="info-box">
         <h3>Understanding Hooks</h3>
@@ -692,7 +896,7 @@ ORDER BY
     </div>
 
     <!-- Challenge 3: Production Hooks -->
-    <div class="challenge-box">
+    <div id="challenge-3" class="challenge-box">
         <h2>🎯 Challenge 3: Add Data Quality Monitoring Hook</h2>
         <p>Create a simple post-hook that automatically counts rows and null order_ids every time your model runs.</p>
 
@@ -832,7 +1036,7 @@ SELECT * FROM dbt_monitoring.quality_log ORDER BY checked_at DESC LIMIT 5;</pre>
         </div>
     </div>
 
-    <h2>🧪 Understanding dbt Tests</h2>
+    <h2 id="tests">🧪 Understanding dbt Tests</h2>
 
     <div class="info-box">
         <h3>Testing Progression: Simple to Advanced</h3>
@@ -861,7 +1065,7 @@ dbt test --store-failures          # Save failures for debugging</pre>
     </div>
 
     <!-- Challenge 4: Schema Tests -->
-    <div class="challenge-box">
+    <div id="challenge-4" class="challenge-box">
         <h2>🎯 Challenge 4: Schema Tests Foundation</h2>
         <p>Start with schema tests - the foundation of data quality validation.</p>
 
@@ -1057,7 +1261,7 @@ dbt test --select stg_orders</pre>
     </div>
 
     <!-- Challenge 5: Unit Tests -->
-    <div class="challenge-box">
+    <div id="challenge-5" class="challenge-box">
         <h2>🎯 Challenge 5: Unit Tests for Model Logic</h2>
         <p>Create unit tests to validate your model transformation logic with mock data.</p>
         
@@ -1209,7 +1413,7 @@ unit_tests:
     </div>
 
     <!-- Challenge 6: Freshness Testing (OPTIONAL) -->
-    <div class="challenge-box">
+    <div id="challenge-6" class="challenge-box">
         <h2>🎯 Challenge 6 (Optional): Data Freshness Monitoring</h2>
         <p>Set up freshness tests to ensure your source data is up-to-date for production ML pipelines.</p>
 
@@ -1461,7 +1665,7 @@ if __name__ == "__main__":
 
 
     <!-- Summary -->
-    <div class="info-box">
+    <div id="session-complete" class="info-box">
         <h2>🎉 Session 3 Complete!</h2>
         
         <h3>What You've Built:</h3>
