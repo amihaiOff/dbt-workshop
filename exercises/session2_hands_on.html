@@ -909,8 +909,6 @@ ORDER BY dbt_valid_from;</pre>
     incremental_strategy='merge'
 ) }}
 
--- Use variables with hierarchy demonstration
-{% set lookback_days = var('lookback_days', [3, 7, 14]) %}
 {% set max_date = var('max_date', '2018-10-31') %}
 
 WITH customer_dates AS (
@@ -932,7 +930,7 @@ WITH customer_dates AS (
     {% if is_incremental() %}
       -- Only process recent feature dates for incremental runs
       AND d.date_day >= (
-        SELECT MAX(date) - INTERVAL '7 days'
+        SELECT MAX(date) - INTERVAL '14 days'
         FROM {{ this }}
       )
     {% endif %}
@@ -958,46 +956,34 @@ daily_payments AS (
     {% endif %}
     
     GROUP BY 1, 2
-),
-
-features AS (
-    SELECT
-        cd.customer_id,
-        cd.date,
-        cd.landing_date,
-        
-        -- Cumulative payment value
-        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) as total_payment_value,
-        
-        -- Dynamic rolling window features
-        {% for days in lookback_days %}
-        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
-            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-        ) as payment_{{ days }}d,
-        
-        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
-            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-        ) as orders_{{ days }}d,
-        {% endfor %}
-        
-        -- Days metrics
-        cd.date - cd.landing_date as days_since_landing
-        
-    FROM customer_dates cd
-    LEFT JOIN daily_payments dp
-        ON cd.customer_id = dp.customer_id
-        AND cd.date = dp.order_date
 )
 
-SELECT * FROM features</pre>
+SELECT
+    cd.customer_id,
+    cd.date,
+    cd.landing_date,
+    
+    -- Cumulative payment value
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_payment_value,
+    
+    -- Cumulative order count
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_orders,
+    
+    -- Days since landing
+    cd.date - cd.landing_date as days_since_landing
+    
+FROM customer_dates cd
+LEFT JOIN daily_payments dp
+    ON cd.customer_id = dp.customer_id
+    AND cd.date = dp.order_date</pre>
             
             <h4>Proper Testing Workflow (Step by Step):</h4>
             <pre>
@@ -1061,13 +1047,126 @@ cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.
         </div>
         
         <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Convert All Models to Incremental</h3>
-            <p>Apply incremental strategies to:</p>
+            <h3>🌟 Optional Challenge: Add Dynamic Rolling Window Features</h3>
+            <p>Extend the incremental model to generate multiple rolling window features dynamically using Jinja loops:</p>
             <ul>
-                <li>All staging models (with appropriate strategies)</li>
-                <li>Customer landing table (unique on customer_id)</li>
-                <li>Any other intermediate models you've built</li>
+                <li>Add a variable <code>lookback_days</code> with values like <code>[3, 7, 14]</code></li>
+                <li>Use a <code>{% for days in lookback_days %}</code> loop to generate rolling payment and order features</li>
+                <li>Generate columns like <code>payment_3d</code>, <code>payment_7d</code>, <code>payment_14d</code>, etc.</li>
             </ul>
+            <p><strong>Hint:</strong> Use <code>ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW</code> for each window size.</p>
+            <p><strong>Hint:</strong> Use <code>{% if not loop.last %},{% endif %}</code> after each column to avoid trailing comma errors.</p>
+            <p><strong>Important:</strong> Make sure your incremental lookback matches your largest rolling window!</p>
+            
+            <button class="solution-button" onclick="toggleSolution('solution3-optional')">Show Solution</button>
+            <div id="solution3-optional" class="solution">
+                <h4>Extended model with dynamic rolling windows:</h4>
+                <pre>
+{{ config(
+    materialized='incremental',
+    unique_key=['customer_id', 'date'],
+    incremental_strategy='merge'
+) }}
+
+{% set lookback_days = var('lookback_days', [3, 7, 14]) %}
+{% set max_date = var('max_date', '2018-10-31') %}
+
+WITH customer_dates AS (
+    SELECT 
+        c.customer_id,
+        c.landing_date,
+        d.date_day as date
+    FROM {{ ref('int_customer_landing') }} c
+    CROSS JOIN (
+        {{ dbt_utils.date_spine(
+            datepart="day",
+            start_date="'2016-01-01'::date",
+            end_date="'2018-12-31'::date"
+        ) }}
+    ) d
+    WHERE d.date_day >= c.landing_date
+      AND d.date_day <= '{{ max_date }}'::date
+      
+    {% if is_incremental() %}
+      -- Lookback must match largest rolling window
+      AND d.date_day >= (
+        SELECT MAX(date) - INTERVAL '{{ lookback_days | max }} days'
+        FROM {{ this }}
+      )
+    {% endif %}
+),
+
+daily_payments AS (
+    SELECT
+        o.customer_id,
+        DATE(o.order_purchase_timestamp) as order_date,
+        SUM(p.payment_value) as daily_payment_value,
+        COUNT(DISTINCT o.order_id) as daily_order_count
+    FROM {{ ref('stg_orders') }} o
+    INNER JOIN {{ ref('stg_order_payments') }} p
+        ON o.order_id = p.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    
+    {% if is_incremental() %}
+      AND DATE(o.order_purchase_timestamp) >= (
+        SELECT MAX(date) - INTERVAL '{{ lookback_days | max }} days'
+        FROM {{ this }}
+      )
+    {% endif %}
+    
+    GROUP BY 1, 2
+)
+
+SELECT
+    cd.customer_id,
+    cd.date,
+    cd.landing_date,
+    
+    -- Cumulative features
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_payment_value,
+    
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as total_orders,
+    
+    -- Dynamic rolling window features
+    {% for days in lookback_days %}
+    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+    ) as payment_{{ days }}d,
+    
+    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+        PARTITION BY cd.customer_id 
+        ORDER BY cd.date 
+        ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+    ) as orders_{{ days }}d{% if not loop.last %},{% endif %}
+    {% endfor %}
+    
+FROM customer_dates cd
+LEFT JOIN daily_payments dp
+    ON cd.customer_id = dp.customer_id
+    AND cd.date = dp.order_date</pre>
+                
+                <p><strong>Key improvements:</strong></p>
+                <ul>
+                    <li>Uses <code>{{ lookback_days | max }}</code> to dynamically set the incremental lookback to match the largest window</li>
+                    <li>Uses <code>{% if not loop.last %},{% endif %}</code> to handle trailing commas correctly</li>
+                    <li>Generates <code>payment_3d</code>, <code>payment_7d</code>, <code>payment_14d</code>, <code>orders_3d</code>, <code>orders_7d</code>, <code>orders_14d</code> columns</li>
+                </ul>
+                
+                <p><strong>Test with different windows:</strong></p>
+                <pre>
+dbt run --select int_customer_daily_features_inc --full-refresh \
+  --vars '{lookback_days: [7, 14, 30], max_date: "2017-03-31"}'</pre>
+            </div>
         </div>
     </div>
 
