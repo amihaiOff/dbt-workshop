@@ -79,7 +79,8 @@ The PostgreSQL connection is **pre-configured and ready to use**:
    - Press `Cmd/Ctrl + Enter` or click the play button to execute
 
 **Manual setup:**
-- Click on create new connection
+- Click on the database extension in the right hand side bar
+- Click on create new connection (plus icon in the top right corner of the database panel)
 - Choose PostgreSQL in the server type
 - Use these credentials
    - Host: `localhost` (from your machine) or `postgres` (from dbt-workshop container)
