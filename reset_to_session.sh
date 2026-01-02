@@ -78,14 +78,10 @@ echo "Resetting to: $SESSION"
 echo "======================================"
 echo ""
 
-# Clean up existing model files (but preserve schema.yml - we'll recreate it)
-echo "Step 1: Cleaning up existing dbt model files..."
-rm -f models/staging/stg_*.sql
-rm -f models/intermediate/int_*.sql
-rm -f models/mart/mart_*.sql
-rm -f snapshots/*.sql
-rm -f macros/calculate_*.sql
-# Note: schema.yml will be recreated with source definitions
+# Restore all placeholder files from git (keeps future session files as placeholders)
+echo "Step 1: Restoring placeholder files from git..."
+git restore models/staging/*.sql models/intermediate/*.sql models/mart/*.sql snapshots/*.yml macros/*.sql seeds/*.csv models/staging/schema.yml 2>/dev/null || true
+# Note: This preserves placeholder files for future sessions
 
 # Clean up dbt-created tables in database (keep source tables)
 echo ""
