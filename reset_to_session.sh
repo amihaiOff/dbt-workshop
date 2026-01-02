@@ -115,6 +115,36 @@ EOSQL
 
 echo "  ✓ Cleaned up dbt-created tables (kept source tables)"
 
+# Create late-arriving orders source table for Session 2 Challenge 4
+echo ""
+echo "Step 2.5: Creating late-arriving orders source table..."
+$DOCKER_COMPOSE exec -T postgres psql -U dbt_user -d dbt_workshop -q << 'EOSQL'
+DROP TABLE IF EXISTS olist_data.olist_late_orders;
+
+CREATE TABLE olist_data.olist_late_orders AS
+SELECT
+    o.order_id,
+    o.customer_id,
+    o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    -- Simulate late arrivals: some orders approved much later than purchased
+    CASE
+        -- 10% of orders arrive 7-14 days late
+        WHEN RANDOM() < 0.10 THEN o.order_purchase_timestamp::timestamp + INTERVAL '7 days' + (RANDOM() * INTERVAL '7 days')
+        -- 5% arrive 14-30 days late
+        WHEN RANDOM() < 0.15 THEN o.order_purchase_timestamp::timestamp + INTERVAL '14 days' + (RANDOM() * INTERVAL '16 days')
+        -- Rest arrive within 1-2 days (normal)
+        ELSE o.order_purchase_timestamp::timestamp + INTERVAL '1 day' + (RANDOM() * INTERVAL '1 day')
+    END as order_approved_at,
+    o.order_status
+FROM olist_data.olist_orders o
+WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  AND o.order_purchase_timestamp IS NOT NULL
+  AND o.order_purchase_timestamp::timestamp <= '2018-03-31'::timestamp
+LIMIT 5000;
+EOSQL
+
+echo "  ✓ Created olist_late_orders with simulated late arrivals"
+
 # Create models based on session
 case $SESSION in
     1)
@@ -145,6 +175,17 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
+      - name: olist_late_orders
+        description: Orders with simulated late arrival times for testing ingestion time tracking
+        columns:
+          - name: order_id
+            description: Order identifier
+          - name: customer_id
+            description: Customer identifier
+          - name: order_purchase_timestamp
+            description: When the order was actually purchased (transaction time)
+          - name: order_approved_at
+            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # Staging models
@@ -335,6 +376,17 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
+      - name: olist_late_orders
+        description: Orders with simulated late arrival times for testing ingestion time tracking
+        columns:
+          - name: order_id
+            description: Order identifier
+          - name: customer_id
+            description: Customer identifier
+          - name: order_purchase_timestamp
+            description: When the order was actually purchased (transaction time)
+          - name: order_approved_at
+            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # First create all Session 1 models (same as case 1, but without running dbt yet)
@@ -510,6 +562,33 @@ WHERE oi.order_id IS NOT NULL
   AND o.order_purchase_timestamp IS NOT NULL
 EOF
 
+        cat > models/staging/stg_late_orders.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Staging model for late-arriving orders
+-- Joins orders with payments to get transaction amounts
+-- Includes both transaction time and ingestion time for point-in-time correctness
+
+SELECT
+    lo.order_id,
+    lo.customer_id,
+    lo.order_purchase_timestamp,
+    DATE(lo.order_purchase_timestamp) as transaction_date,
+    lo.order_approved_at as ingestion_timestamp,
+    DATE(lo.order_approved_at) as ingestion_date,
+    p.payment_value::DECIMAL(10,2) as payment_value,
+
+    -- Calculate how late this order arrived (for analysis)
+    (lo.order_approved_at - lo.order_purchase_timestamp) as arrival_delay
+
+FROM {{ source('olist_data', 'olist_late_orders') }} lo
+INNER JOIN {{ source('olist_data', 'olist_order_payments') }} p
+    ON lo.order_id = p.order_id
+WHERE lo.order_id IS NOT NULL
+  AND lo.customer_id IS NOT NULL
+  AND p.payment_value > 0
+EOF
+
         cat > models/intermediate/int_seller_performance.sql << 'EOF'
 {{ config(materialized='table') }}
 
@@ -556,6 +635,64 @@ SELECT
     last_sale_date,
     updated_at
 FROM seller_metrics
+EOF
+
+        cat > models/intermediate/int_customer_payment_features.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Calculate daily payment features for customers using ingestion time tracking
+-- This ensures point-in-time correctness: only count payments that had arrived by the feature date
+
+WITH feature_dates AS (
+    -- Generate all dates we want to calculate features for
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="'2018-01-01'::date",
+        end_date="'2018-03-31'::date"
+    ) }}
+),
+
+all_customers AS (
+    -- Get all unique customers
+    SELECT DISTINCT customer_id
+    FROM {{ ref('stg_late_orders') }}
+),
+
+customer_feature_dates AS (
+    -- For each customer, generate all feature dates
+    SELECT
+        ac.customer_id,
+        fd.date_day as feature_date
+    FROM all_customers ac
+    CROSS JOIN feature_dates fd
+),
+
+point_in_time_payments AS (
+    -- For each feature date, only include payments that:
+    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
+    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
+    SELECT
+        cfd.customer_id,
+        cfd.feature_date,
+        SUM(lo.payment_value) as total_payment_value,
+        COUNT(DISTINCT lo.order_id) as total_orders
+    FROM customer_feature_dates cfd
+    LEFT JOIN {{ ref('stg_late_orders') }} lo
+        ON cfd.customer_id = lo.customer_id
+        -- Transaction must have happened by feature date
+        AND lo.transaction_date <= cfd.feature_date
+        -- Data must have arrived in our system by feature date (KEY LOGIC!)
+        AND lo.ingestion_date <= cfd.feature_date
+    GROUP BY 1, 2
+)
+
+SELECT
+    customer_id,
+    feature_date,
+    COALESCE(total_payment_value, 0) as total_payment_value,
+    COALESCE(total_orders, 0) as total_orders
+FROM point_in_time_payments
+ORDER BY customer_id, feature_date
 EOF
 
         cat > snapshots/snapshots.yml << 'EOF'
@@ -620,6 +757,17 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
+      - name: olist_late_orders
+        description: Orders with simulated late arrival times for testing ingestion time tracking
+        columns:
+          - name: order_id
+            description: Order identifier
+          - name: customer_id
+            description: Customer identifier
+          - name: order_purchase_timestamp
+            description: When the order was actually purchased (transaction time)
+          - name: order_approved_at
+            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # Create all Session 1 staging models
@@ -820,6 +968,33 @@ WHERE oi.order_id IS NOT NULL
   AND o.order_purchase_timestamp IS NOT NULL
 EOF
 
+        cat > models/staging/stg_late_orders.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Staging model for late-arriving orders
+-- Joins orders with payments to get transaction amounts
+-- Includes both transaction time and ingestion time for point-in-time correctness
+
+SELECT
+    lo.order_id,
+    lo.customer_id,
+    lo.order_purchase_timestamp,
+    DATE(lo.order_purchase_timestamp) as transaction_date,
+    lo.order_approved_at as ingestion_timestamp,
+    DATE(lo.order_approved_at) as ingestion_date,
+    p.payment_value::DECIMAL(10,2) as payment_value,
+
+    -- Calculate how late this order arrived (for analysis)
+    (lo.order_approved_at - lo.order_purchase_timestamp) as arrival_delay
+
+FROM {{ source('olist_data', 'olist_late_orders') }} lo
+INNER JOIN {{ source('olist_data', 'olist_order_payments') }} p
+    ON lo.order_id = p.order_id
+WHERE lo.order_id IS NOT NULL
+  AND lo.customer_id IS NOT NULL
+  AND p.payment_value > 0
+EOF
+
         cat > models/intermediate/int_seller_performance.sql << 'EOF'
 {{ config(materialized='table') }}
 
@@ -858,6 +1033,64 @@ SELECT
     last_sale_date,
     updated_at
 FROM seller_metrics
+EOF
+
+        cat > models/intermediate/int_customer_payment_features.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Calculate daily payment features for customers using ingestion time tracking
+-- This ensures point-in-time correctness: only count payments that had arrived by the feature date
+
+WITH feature_dates AS (
+    -- Generate all dates we want to calculate features for
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="'2018-01-01'::date",
+        end_date="'2018-03-31'::date"
+    ) }}
+),
+
+all_customers AS (
+    -- Get all unique customers
+    SELECT DISTINCT customer_id
+    FROM {{ ref('stg_late_orders') }}
+),
+
+customer_feature_dates AS (
+    -- For each customer, generate all feature dates
+    SELECT
+        ac.customer_id,
+        fd.date_day as feature_date
+    FROM all_customers ac
+    CROSS JOIN feature_dates fd
+),
+
+point_in_time_payments AS (
+    -- For each feature date, only include payments that:
+    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
+    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
+    SELECT
+        cfd.customer_id,
+        cfd.feature_date,
+        SUM(lo.payment_value) as total_payment_value,
+        COUNT(DISTINCT lo.order_id) as total_orders
+    FROM customer_feature_dates cfd
+    LEFT JOIN {{ ref('stg_late_orders') }} lo
+        ON cfd.customer_id = lo.customer_id
+        -- Transaction must have happened by feature date
+        AND lo.transaction_date <= cfd.feature_date
+        -- Data must have arrived in our system by feature date (KEY LOGIC!)
+        AND lo.ingestion_date <= cfd.feature_date
+    GROUP BY 1, 2
+)
+
+SELECT
+    customer_id,
+    feature_date,
+    COALESCE(total_payment_value, 0) as total_payment_value,
+    COALESCE(total_orders, 0) as total_orders
+FROM point_in_time_payments
+ORDER BY customer_id, feature_date
 EOF
 
         # Session 3: Customer Tiers Model
@@ -1113,6 +1346,17 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
+      - name: olist_late_orders
+        description: Orders with simulated late arrival times for testing ingestion time tracking
+        columns:
+          - name: order_id
+            description: Order identifier
+          - name: customer_id
+            description: Customer identifier
+          - name: order_purchase_timestamp
+            description: When the order was actually purchased (transaction time)
+          - name: order_approved_at
+            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # Session 1 staging models
@@ -1307,6 +1551,33 @@ WHERE oi.order_id IS NOT NULL
   AND o.order_purchase_timestamp IS NOT NULL
 EOF
 
+        cat > models/staging/stg_late_orders.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Staging model for late-arriving orders
+-- Joins orders with payments to get transaction amounts
+-- Includes both transaction time and ingestion time for point-in-time correctness
+
+SELECT
+    lo.order_id,
+    lo.customer_id,
+    lo.order_purchase_timestamp,
+    DATE(lo.order_purchase_timestamp) as transaction_date,
+    lo.order_approved_at as ingestion_timestamp,
+    DATE(lo.order_approved_at) as ingestion_date,
+    p.payment_value::DECIMAL(10,2) as payment_value,
+
+    -- Calculate how late this order arrived (for analysis)
+    (lo.order_approved_at - lo.order_purchase_timestamp) as arrival_delay
+
+FROM {{ source('olist_data', 'olist_late_orders') }} lo
+INNER JOIN {{ source('olist_data', 'olist_order_payments') }} p
+    ON lo.order_id = p.order_id
+WHERE lo.order_id IS NOT NULL
+  AND lo.customer_id IS NOT NULL
+  AND p.payment_value > 0
+EOF
+
         cat > models/intermediate/int_seller_performance.sql << 'EOF'
 {{ config(materialized='table') }}
 
@@ -1338,6 +1609,64 @@ SELECT
     last_sale_date,
     updated_at
 FROM seller_metrics
+EOF
+
+        cat > models/intermediate/int_customer_payment_features.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Calculate daily payment features for customers using ingestion time tracking
+-- This ensures point-in-time correctness: only count payments that had arrived by the feature date
+
+WITH feature_dates AS (
+    -- Generate all dates we want to calculate features for
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="'2018-01-01'::date",
+        end_date="'2018-03-31'::date"
+    ) }}
+),
+
+all_customers AS (
+    -- Get all unique customers
+    SELECT DISTINCT customer_id
+    FROM {{ ref('stg_late_orders') }}
+),
+
+customer_feature_dates AS (
+    -- For each customer, generate all feature dates
+    SELECT
+        ac.customer_id,
+        fd.date_day as feature_date
+    FROM all_customers ac
+    CROSS JOIN feature_dates fd
+),
+
+point_in_time_payments AS (
+    -- For each feature date, only include payments that:
+    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
+    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
+    SELECT
+        cfd.customer_id,
+        cfd.feature_date,
+        SUM(lo.payment_value) as total_payment_value,
+        COUNT(DISTINCT lo.order_id) as total_orders
+    FROM customer_feature_dates cfd
+    LEFT JOIN {{ ref('stg_late_orders') }} lo
+        ON cfd.customer_id = lo.customer_id
+        -- Transaction must have happened by feature date
+        AND lo.transaction_date <= cfd.feature_date
+        -- Data must have arrived in our system by feature date (KEY LOGIC!)
+        AND lo.ingestion_date <= cfd.feature_date
+    GROUP BY 1, 2
+)
+
+SELECT
+    customer_id,
+    feature_date,
+    COALESCE(total_payment_value, 0) as total_payment_value,
+    COALESCE(total_orders, 0) as total_orders
+FROM point_in_time_payments
+ORDER BY customer_id, feature_date
 EOF
 
         # Session 2: Incremental model WITH updated_at (final solution)

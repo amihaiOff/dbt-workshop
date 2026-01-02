@@ -1144,119 +1144,188 @@ dbt run --select int_customer_daily_features_inc --full-refresh \
     <!-- Challenge 4: Late Arriving Events - Ingestion Time Tracking -->
     <div id="challenge-4" class="challenge-box">
         <h2>🎯 Challenge 4: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
-        <p>Implement ingestion time tracking for late-arriving data discussed in today's presentation.</p>
-        
+        <p>Build point-in-time correct features that account for late-arriving payment data.</p>
+
         <div class="info-box">
             <h3>📅 The Late Data Problem (from Session 2 Presentation)</h3>
-            <p><strong>The Scenario:</strong> Payment confirmations arrive 1-3 days after the original order.</p>
-            <p><strong>The Risk:</strong> Training data includes all payments, but inference data is missing recent late arrivals.</p>
-            <p><strong>The Result:</strong> Training/serving skew that degrades model performance.</p>
-            
+            <p><strong>The Scenario:</strong> Some order payments arrive 1-30 days after the original order.</p>
+            <p><strong>The Risk:</strong> If we only check transaction dates, we'll use data that hadn't arrived yet!</p>
+            <p><strong>The Result:</strong> Training/serving skew - your model sees future data it wouldn't have in production.</p>
+
             <p><strong>Solution: Ingestion Time Tracking</strong></p>
             <ul>
-                <li>Track when data arrives in your system (not just when events occurred)</li>
-                <li>Ensures point-in-time correctness for model training</li>
-                <li>Best for mission-critical systems requiring perfect accuracy</li>
+                <li><strong>Transaction Time:</strong> When the order actually happened (<code>order_purchase_timestamp</code>)</li>
+                <li><strong>Ingestion Time:</strong> When the data entered our system (<code>order_approved_at</code>)</li>
+                <li><strong>Feature Date:</strong> The date we're calculating features for</li>
+                <li><strong>Rule:</strong> Only count transactions where <code>ingestion_date <= feature_date</code></li>
             </ul>
         </div>
         
         <h3>Requirements:</h3>
         <ol>
-            <li>Create the provided staging model with ingestion time tracking (see below)</li>
-            <li>Build point-in-time correct features using the staging model</li>
-            <li>Test with simulated late data</li>
-            <li>Verify point-in-time accuracy</li>
+            <li>Use the provided staging model <code>stg_late_orders</code> (already built for you)</li>
+            <li>Build an intermediate model <code>int_customer_payment_features</code> that calculates daily payment features</li>
+            <li>Use ingestion time logic to ensure point-in-time correctness</li>
+            <li>Validate with the example customer provided</li>
         </ol>
-        
+
         <div class="info-box">
-            <h4>📦 Provided Staging Model</h4>
-            <p>Create this file and run it first - we've provided it so you can focus on the feature engineering:</p>
-            <p><strong>models/staging/stg_orders_with_ingestion.sql</strong></p>
-            <pre>
-{{ config(
-    materialized='incremental',
-    unique_key='order_id',
-    incremental_strategy='merge'
-) }}
+            <h4>📦 Provided: Staging Model (Already Built)</h4>
+            <p>We've created <code>stg_late_orders.sql</code> for you with late-arriving payment data:</p>
+            <ul>
+                <li><strong>transaction_date:</strong> When the order was purchased</li>
+                <li><strong>ingestion_date:</strong> When the order was approved/entered our system</li>
+                <li><strong>payment_value:</strong> How much the order cost</li>
+                <li><strong>arrival_delay:</strong> How late the data arrived (for analysis)</li>
+            </ul>
+            <p>About ~23% of orders arrived more than 7 days late!</p>
+        </div>
 
-SELECT
-    order_id,
-    customer_id,
-    order_status,
-    order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    DATE(order_purchase_timestamp::timestamp) as order_date,
-    
-    -- INGESTION TIME STRATEGY: Track when we received this data
-    CURRENT_TIMESTAMP as ingestion_time,
-    
-    -- Simulate late arrival: some orders arrive 1-3 days after order_date
-    CASE 
-        WHEN order_id IN (
-            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
-            WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
-        ) THEN order_purchase_timestamp::timestamp + INTERVAL '2 days'
-        ELSE order_purchase_timestamp::timestamp + INTERVAL '1 hour'
-    END as simulated_arrival_time
+        <h4>Your Task: Build Point-in-Time Correct Features</h4>
+        <p>Create <code>models/intermediate/int_customer_payment_features.sql</code> that:</p>
+        <ol>
+            <li>Generates feature dates for each customer (Jan 1 - Mar 31, 2018)</li>
+            <li>For each feature date, calculates:
+                <ul>
+                    <li><code>total_payment_value</code> - sum of payments</li>
+                    <li><code>total_orders</code> - count of orders</li>
+                </ul>
+            </li>
+            <li><strong>Critical logic:</strong> Only include transactions where:
+                <ul>
+                    <li>Transaction happened by feature date: <code>transaction_date <= feature_date</code></li>
+                    <li>Data had arrived by feature date: <code>ingestion_date <= feature_date</code></li>
+                </ul>
+            </li>
+        </ol>
 
-FROM {{ source('olist_data', 'olist_orders') }}
-
-WHERE order_status != 'unavailable'
-  AND order_purchase_timestamp IS NOT NULL
-  
-  {% if is_incremental() %}
-    -- Only process recently arrived data
-    AND order_purchase_timestamp::timestamp > (
-        SELECT MAX(order_purchase_timestamp) - INTERVAL '1 day'
-        FROM {{ this }}
-    )
-  {% endif %}</pre>
-            
-            <p><strong>Run this model first:</strong></p>
-            <pre>dbt run --select stg_orders_with_ingestion --full-refresh</pre>
+        <div class="warning-box">
+            <strong>⚠️ Common Mistake:</strong> If you only check <code>transaction_date</code>, you'll count payments that hadn't arrived yet! This creates training/serving skew.
         </div>
         
         <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
         <div id="solution4" class="solution">
-            <h4>Build Point-in-Time Correct Features</h4>
-            <p><strong>models/intermediate/int_payment_features_ingestion.sql</strong></p>
+            <h4>models/intermediate/int_customer_payment_features.sql</h4>
             <pre>
 {{ config(materialized='table') }}
 
--- Point-in-time correct features using ingestion time
-WITH prediction_dates AS (
+-- Calculate daily payment features for customers using ingestion time tracking
+-- This ensures point-in-time correctness: only count payments that had arrived by the feature date
+
+WITH feature_dates AS (
+    -- Generate all dates we want to calculate features for
     {{ dbt_utils.date_spine(
         datepart="day",
-        start_date="'2017-01-01'::date",
-        end_date="'2017-03-31'::date"
+        start_date="'2018-01-01'::date",
+        end_date="'2018-03-31'::date"
     ) }}
 ),
 
+all_customers AS (
+    -- Get all unique customers
+    SELECT DISTINCT customer_id
+    FROM {{ ref('stg_late_orders') }}
+),
+
+customer_feature_dates AS (
+    -- For each customer, generate all feature dates
+    SELECT
+        ac.customer_id,
+        fd.date_day as feature_date
+    FROM all_customers ac
+    CROSS JOIN feature_dates fd
+),
+
 point_in_time_payments AS (
-    SELECT 
-        pd.date_day as prediction_date,
-        o.customer_id,
-        COUNT(DISTINCT o.order_id) as orders_count,
-        SUM(p.payment_value) as total_payments
-    FROM prediction_dates pd
-    CROSS JOIN {{ ref('stg_orders_with_ingestion') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-      -- CRITICAL: Only use data we "knew" at prediction time
-      AND o.simulated_arrival_time <= pd.date_day + INTERVAL '1 day'
-      AND DATE(o.order_purchase_timestamp) <= pd.date_day
+    -- For each feature date, only include payments that:
+    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
+    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
+    SELECT
+        cfd.customer_id,
+        cfd.feature_date,
+        SUM(lo.payment_value) as total_payment_value,
+        COUNT(DISTINCT lo.order_id) as total_orders
+    FROM customer_feature_dates cfd
+    LEFT JOIN {{ ref('stg_late_orders') }} lo
+        ON cfd.customer_id = lo.customer_id
+        -- Transaction must have happened by feature date
+        AND lo.transaction_date <= cfd.feature_date
+        -- Data must have arrived in our system by feature date (KEY LOGIC!)
+        AND lo.ingestion_date <= cfd.feature_date
     GROUP BY 1, 2
 )
 
-SELECT 
-    prediction_date as date,
+SELECT
     customer_id,
-    COALESCE(orders_count, 0) as orders_count,
-    COALESCE(total_payments, 0) as total_payments,
-    'ingestion_time_tracking' as method
-FROM prediction_dates pd
-LEFT JOIN point_in_time_payments pit
-    ON pd.date_day = pit.prediction_date</pre>
+    feature_date,
+    COALESCE(total_payment_value, 0) as total_payment_value,
+    COALESCE(total_orders, 0) as total_orders
+FROM point_in_time_payments
+ORDER BY customer_id, feature_date</pre>
+
+            <h4>✅ Validate Point-in-Time Correctness</h4>
+            <p>Test with customer <code>8c3bb1ec148b8d1c603c47a15c41faa9</code> who has a late-arriving payment:</p>
+            <ul>
+                <li><strong>Transaction date:</strong> February 15, 2018</li>
+                <li><strong>Ingestion date:</strong> March 16, 2018 (29 days late!)</li>
+                <li><strong>Payment amount:</strong> $63.51</li>
+            </ul>
+
+            <p><strong>Test on feature date March 1, 2018:</strong></p>
+            <pre>
+-- Compare wrong vs correct approach
+WITH example_customer AS (
+    SELECT '8c3bb1ec148b8d1c603c47a15c41faa9' as cust_id
+),
+
+-- WRONG: Using only transaction date
+wrong_method AS (
+    SELECT
+        SUM(payment_value) as total_payments
+    FROM olist_data.stg_late_orders
+    WHERE customer_id = (SELECT cust_id FROM example_customer)
+      AND transaction_date <= DATE('2018-03-01')
+),
+
+-- CORRECT: Using ingestion date
+correct_method AS (
+    SELECT
+        total_payment_value as total_payments
+    FROM olist_data.int_customer_payment_features
+    WHERE customer_id = (SELECT cust_id FROM example_customer)
+      AND feature_date = DATE('2018-03-01')
+)
+
+SELECT
+    'Transaction Date Only (WRONG)' as method,
+    ROUND(wm.total_payments, 2) as total_payments,
+    'Counts $63.51 even though data had not arrived yet!' as note
+FROM wrong_method wm
+UNION ALL
+SELECT
+    'Ingestion Time Tracking (CORRECT)' as method,
+    ROUND(cm.total_payments, 2) as total_payments,
+    'Data had not arrived by Mar 1, so correctly shows $0' as note
+FROM correct_method cm;</pre>
+
+            <p><strong>Expected output:</strong></p>
+            <pre>
+              method               | total_payments |                           note
+-----------------------------------+----------------+----------------------------------------------------------
+ Transaction Date Only (WRONG)     |          63.51 | Counts $63.51 even though data had not arrived yet!
+ Ingestion Time Tracking (CORRECT) |           0.00 | Data had not arrived by Mar 1, so correctly shows $0
+</pre>
+
+            <div class="info-box">
+                <h4>🎯 Why This Matters</h4>
+                <p><strong>The Scenario:</strong> You're building a model to predict customer churn on March 1, 2018.</p>
+                <ul>
+                    <li><strong>Wrong approach:</strong> Uses the $63.51 payment in training (total = $63.51)</li>
+                    <li><strong>Correct approach:</strong> Doesn't use it because data hadn't arrived (total = $0)</li>
+                </ul>
+                <p><strong>The Problem:</strong> In production on March 1, you wouldn't have that payment data! Your model would see $0, but you trained it on $63.51. This is <strong>training/serving skew</strong>.</p>
+                <p><strong>The Fix:</strong> Ingestion time tracking ensures your training data matches what you'd actually have in production.</p>
+            </div>
         </div>
         
         <div class="optional-challenge">
