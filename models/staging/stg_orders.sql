@@ -1,0 +1,4 @@
+-- TODO: This file should be completed in Session 1, Challenge 1
+-- Task: Create a staging model for orders
+--
+-- Instructions: See exercises/session1_hands_on.html - Challenge 1

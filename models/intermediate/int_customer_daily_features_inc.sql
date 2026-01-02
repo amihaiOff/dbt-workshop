@@ -1,0 +1,4 @@
+-- TODO: This file should be completed in Session 2, Challenge 3
+-- Task: Create incremental version of customer daily features
+--
+-- Instructions: See exercises/session2_hands_on.html - Challenge 3

@@ -1,33 +1,4 @@
-version: 2
-
-sources:
-  - name: olist_data
-    schema: olist_data
-    tables:
-      - name: olist_orders
-        columns:
-          - name: order_id
-            description: Unique order identifier
-      - name: olist_customers
-        columns:
-          - name: customer_id
-            description: Unique customer identifier
-      - name: olist_order_items
-        columns:
-          - name: order_id
-            description: Order identifier
-      - name: olist_order_payments
-        columns:
-          - name: order_id
-            description: Order identifier
-      - name: olist_late_orders
-        description: Orders with simulated late arrival times for testing ingestion time tracking
-        columns:
-          - name: order_id
-            description: Order identifier
-          - name: customer_id
-            description: Customer identifier
-          - name: order_purchase_timestamp
-            description: When the order was actually purchased (transaction time)
-          - name: order_approved_at
-            description: When the order was approved/entered our system (ingestion time)
+# TODO: This file should be completed across multiple sessions
+# Task: Define source tables and add configurations
+#
+# Instructions: See exercises for Session 1, 2, and 3

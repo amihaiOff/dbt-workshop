@@ -1,0 +1,4 @@
+-- TODO: This file should be completed in Session 1, Challenge 2
+-- Task: Create an entity landing table for customers
+--
+-- Instructions: See exercises/session1_hands_on.html - Challenge 2

@@ -1,0 +1,4 @@
+-- TODO: This file should be completed in Session 3, Challenge 2
+-- Task: Create reusable macro for tier classification
+--
+-- Instructions: See exercises/session3_hands_on.html - Challenge 2

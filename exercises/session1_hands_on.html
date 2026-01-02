@@ -571,8 +571,8 @@ sources:
 
     <!-- Challenge 1 -->
     <div id="challenge-1" class="challenge-box">
-        <h2>🎯 Challenge 1: Create Staging Tables</h2>
-        <p>Create clean staging tables for the Olist data. <strong>Focus on type casting and data quality filters.</strong></p>
+        <h2>🎯 Challenge 1: Complete Staging Tables</h2>
+        <p>Complete the staging table files with clean, transformed Olist data. <strong>Focus on type casting and data quality filters.</strong></p>
 
         <div class="warning-box">
             <h3>⚠️ Important: Apply Filters and Type Casts in Staging Models</h3>
@@ -586,11 +586,11 @@ sources:
 
         <h3>Requirements:</h3>
         <ol>
-            <li>Create <code>models/staging/schema.yml</code> with source definitions</li>
-            <li>Create <code>stg_orders.sql</code> with proper type casting and filters</li>
-            <li>Create <code>stg_customers.sql</code> with type casting and filters</li>
-            <li>Create <code>stg_order_items.sql</code> with type casting and filters</li>
-            <li>Create <code>stg_order_payments.sql</code> with type casting and filters</li>
+            <li>Edit <code>models/staging/schema.yml</code> with source definitions</li>
+            <li>Edit <code>models/staging/stg_orders.sql</code> with proper type casting and filters</li>
+            <li>Edit <code>models/staging/stg_customers.sql</code> with type casting and filters</li>
+            <li>Edit <code>models/staging/stg_order_items.sql</code> with type casting and filters</li>
+            <li>Edit <code>models/staging/stg_order_payments.sql</code> with type casting and filters</li>
         </ol>
 
         <h3>Data Quality Filters to Apply:</h3>
@@ -756,7 +756,7 @@ WHERE order_id IS NOT NULL
 
     <!-- Challenge 2 -->
     <div id="challenge-2" class="challenge-box">
-        <h2>🎯 Challenge 2: Create Entity Landing Table</h2>
+        <h2>🎯 Challenge 2: Complete Entity Landing Table</h2>
         <p>Create an intermediate table that identifies when each customer "landed" (made their first purchase).</p>
         
         <div class="info-box">
@@ -866,7 +866,7 @@ FROM first_orders</pre>
 
     <!-- Challenge 3 -->
     <div id="challenge-3" class="challenge-box">
-        <h2>🎯 Challenge 3: Create Entity-Centric Feature Table</h2>
+        <h2>🎯 Challenge 3: Complete Entity-Centric Feature Table</h2>
         <p>Build a daily feature table that tracks cumulative payments for each customer since landing.</p>
         
         <h3>Requirements:</h3>
@@ -997,7 +997,7 @@ LEFT JOIN daily_payments dp
         
         <div class="optional-challenge">
             <h3>🌟 Optional Challenge 2: Create Labels Table</h3>
-            <p>Create <code>int_customer_labels.sql</code> that calculates whether a customer churned (no transactions for 90 days).</p>
+            <p>Edit <code>models/intermediate/int_customer_labels.sql</code> that calculates whether a customer churned (no transactions for 90 days).</p>
             
             <button class="solution-button" onclick="toggleSolution('optional2')">Show Solution</button>
             <div id="optional2" class="solution">

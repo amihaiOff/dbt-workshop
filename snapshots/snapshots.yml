@@ -1,9 +1,4 @@
-version: 2
-
-snapshots:
-  - name: snap_seller_tier
-    relation: ref('int_seller_performance')
-    config:
-      unique_key: seller_id
-      strategy: timestamp
-      updated_at: updated_at
+# TODO: This file should be completed in Session 2, Challenge 2
+# Task: Create snapshot configuration for tracking seller tier changes over time
+#
+# Instructions: See exercises/session2_hands_on.html - Challenge 2

@@ -1,0 +1,4 @@
+-- TODO: This file should be completed in Session 1, Challenge 3
+-- Task: Create entity-centric feature table with daily metrics
+--
+-- Instructions: See exercises/session1_hands_on.html - Challenge 3

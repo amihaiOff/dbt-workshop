@@ -11,6 +11,9 @@ analysis-paths: ["analyses"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
+vars:
+  lookback_days: [3, 7, 14]
+
 models:
   dbt_workshop:
     +materialized: view
