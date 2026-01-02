@@ -126,14 +126,21 @@ SELECT
     o.order_id,
     o.customer_id,
     o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    -- Simulate late arrivals: some orders approved much later than purchased
+    -- Simulate late arrivals using deterministic hash-based delays
+    -- This ensures consistent results across resets
     CASE
-        -- 10% of orders arrive 7-14 days late
-        WHEN RANDOM() < 0.10 THEN o.order_purchase_timestamp::timestamp + INTERVAL '7 days' + (RANDOM() * INTERVAL '7 days')
-        -- 5% arrive 14-30 days late
-        WHEN RANDOM() < 0.15 THEN o.order_purchase_timestamp::timestamp + INTERVAL '14 days' + (RANDOM() * INTERVAL '16 days')
+        -- Orders where hash mod 10 = 0: arrive 7-14 days late (10%)
+        WHEN MOD(ABS(HASHTEXT(o.order_id)), 10) = 0 THEN
+            o.order_purchase_timestamp::timestamp + INTERVAL '7 days' +
+            (MOD(ABS(HASHTEXT(o.order_id || 'salt1')), 7) || ' days')::INTERVAL
+        -- Orders where hash mod 20 = 1: arrive 14-30 days late (5%)
+        WHEN MOD(ABS(HASHTEXT(o.order_id)), 20) = 1 THEN
+            o.order_purchase_timestamp::timestamp + INTERVAL '14 days' +
+            (MOD(ABS(HASHTEXT(o.order_id || 'salt2')), 16) || ' days')::INTERVAL
         -- Rest arrive within 1-2 days (normal)
-        ELSE o.order_purchase_timestamp::timestamp + INTERVAL '1 day' + (RANDOM() * INTERVAL '1 day')
+        ELSE
+            o.order_purchase_timestamp::timestamp + INTERVAL '1 day' +
+            (MOD(ABS(HASHTEXT(o.order_id || 'salt3')), 24) || ' hours')::INTERVAL
     END as order_approved_at,
     o.order_status
 FROM olist_data.olist_orders o

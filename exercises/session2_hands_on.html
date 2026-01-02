@@ -1264,18 +1264,18 @@ FROM point_in_time_payments
 ORDER BY customer_id, feature_date</pre>
 
             <h4>✅ Validate Point-in-Time Correctness</h4>
-            <p>Test with customer <code>8c3bb1ec148b8d1c603c47a15c41faa9</code> who has a late-arriving payment:</p>
+            <p>Test with customer <code>b48ad91d707041578581aefae1f7c385</code> who has a late-arriving payment:</p>
             <ul>
-                <li><strong>Transaction date:</strong> February 15, 2018</li>
-                <li><strong>Ingestion date:</strong> March 16, 2018 (29 days late!)</li>
-                <li><strong>Payment amount:</strong> $63.51</li>
+                <li><strong>Transaction date:</strong> February 25, 2018</li>
+                <li><strong>Ingestion date:</strong> March 26, 2018 (29 days late!)</li>
+                <li><strong>Payment amount:</strong> $232.71</li>
             </ul>
 
             <p><strong>Test on feature date March 1, 2018:</strong></p>
             <pre>
 -- Compare wrong vs correct approach
 WITH example_customer AS (
-    SELECT '8c3bb1ec148b8d1c603c47a15c41faa9' as cust_id
+    SELECT 'b48ad91d707041578581aefae1f7c385' as cust_id
 ),
 
 -- WRONG: Using only transaction date
@@ -1299,7 +1299,7 @@ correct_method AS (
 SELECT
     'Transaction Date Only (WRONG)' as method,
     ROUND(wm.total_payments, 2) as total_payments,
-    'Counts $63.51 even though data had not arrived yet!' as note
+    'Counts $232.71 even though data had not arrived yet!' as note
 FROM wrong_method wm
 UNION ALL
 SELECT
@@ -1312,7 +1312,7 @@ FROM correct_method cm;</pre>
             <pre>
               method               | total_payments |                           note
 -----------------------------------+----------------+----------------------------------------------------------
- Transaction Date Only (WRONG)     |          63.51 | Counts $63.51 even though data had not arrived yet!
+ Transaction Date Only (WRONG)     |         232.71 | Counts $232.71 even though data had not arrived yet!
  Ingestion Time Tracking (CORRECT) |           0.00 | Data had not arrived by Mar 1, so correctly shows $0
 </pre>
 
@@ -1320,10 +1320,10 @@ FROM correct_method cm;</pre>
                 <h4>🎯 Why This Matters</h4>
                 <p><strong>The Scenario:</strong> You're building a model to predict customer churn on March 1, 2018.</p>
                 <ul>
-                    <li><strong>Wrong approach:</strong> Uses the $63.51 payment in training (total = $63.51)</li>
+                    <li><strong>Wrong approach:</strong> Uses the $232.71 payment in training (total = $232.71)</li>
                     <li><strong>Correct approach:</strong> Doesn't use it because data hadn't arrived (total = $0)</li>
                 </ul>
-                <p><strong>The Problem:</strong> In production on March 1, you wouldn't have that payment data! Your model would see $0, but you trained it on $63.51. This is <strong>training/serving skew</strong>.</p>
+                <p><strong>The Problem:</strong> In production on March 1, you wouldn't have that payment data! Your model would see $0, but you trained it on $232.71. This is <strong>training/serving skew</strong>.</p>
                 <p><strong>The Fix:</strong> Ingestion time tracking ensures your training data matches what you'd actually have in production.</p>
             </div>
         </div>
