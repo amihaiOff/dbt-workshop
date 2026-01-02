@@ -828,7 +828,19 @@ ORDER BY dbt_valid_from;</pre>
         </ul>
     </div>
 
+    <h2 id="incremental-models">📈 Incremental Models - The Production Game Changer</h2>
+
     <div class="info-box">
+        <h3>Understanding Incremental Models from Session 2 Presentation</h3>
+
+        <p><strong>Key Concepts from Today's Presentation:</strong></p>
+        <ul>
+            <li><strong>Problem:</strong> Processing 100M orders daily is expensive and slow</li>
+            <li><strong>Solution:</strong> Only process new/changed data (10-100x faster)</li>
+            <li><strong>Strategies:</strong> Append, Merge, Delete+Insert</li>
+            <li><strong>Late Data:</strong> Use lookback windows or ingestion time tracking</li>
+        </ul>
+
         <h4>📝 What does --full-refresh do?</h4>
         <p>The <code>--full-refresh</code> flag forces dbt to completely rebuild a model from scratch, dropping and recreating the table. This is especially important for incremental models:</p>
         <ul>
@@ -839,21 +851,7 @@ ORDER BY dbt_valid_from;</pre>
         </ul>
         <p><strong>Without --full-refresh:</strong> Incremental models only process new/changed data based on the <code>is_incremental()</code> logic.</p>
         <p><strong>With --full-refresh:</strong> The model behaves like a regular table materialization, processing all data from scratch.</p>
-    </div>
 
-    <h2 id="incremental-models">📈 Incremental Models - The Production Game Changer</h2>
-    
-    <div class="info-box">
-        <h3>Understanding Incremental Models from Session 2 Presentation</h3>
-        
-        <p><strong>Key Concepts from Today's Presentation:</strong></p>
-        <ul>
-            <li><strong>Problem:</strong> Processing 100M orders daily is expensive and slow</li>
-            <li><strong>Solution:</strong> Only process new/changed data (10-100x faster)</li>
-            <li><strong>Strategies:</strong> Append, Merge, Delete+Insert</li>
-            <li><strong>Late Data:</strong> Use lookback windows or ingestion time tracking</li>
-        </ul>
-        
         <p><strong>How to Test Incremental Models Properly:</strong></p>
         <ol>
             <li><strong>Full Refresh + Limited Data:</strong> Build table with subset of data</li>
@@ -863,10 +861,6 @@ ORDER BY dbt_valid_from;</pre>
             <li><strong>Check Incremental SQL:</strong> Verify the MERGE/INSERT statement</li>
             <li><strong>Validate Data:</strong> Ensure only new data was processed</li>
         </ol>
-        
-        <div class="warning-box">
-            <strong>Live Demo Alert!</strong> During class, we've demonstrated this step-by-step process live, showing you exactly how to inspect the compiled SQL and validate incremental behavior.
-        </div>
     </div>
 
     <!-- Challenge 3: Incremental Models -->
@@ -880,10 +874,49 @@ ORDER BY dbt_valid_from;</pre>
             <li>Follow the proper testing workflow</li>
             <li>Verify incremental behavior</li>
         </ol>
-        
+
         <div class="info-box">
             <strong>💡 Reminder:</strong> The <code>{{ this }}</code> keyword in dbt refers to the current model's table in the database. When used inside an incremental model, it lets you query the existing table to find the maximum date or other metadata to determine what new data to process.
         </div>
+
+        <div class="info-box">
+            <strong>💡 Verifying Incremental Logic:</strong> Use <code>target/run/</code> to see the actual SQL that ran against your database:
+            <ul>
+                <li><strong>Full refresh:</strong> Check <code>target/run/.../int_customer_daily_features_inc.sql</code> → Should see <code>CREATE TABLE</code></li>
+                <li><strong>Incremental run:</strong> Same file → Should see <code>MERGE</code> statement with incremental filters</li>
+            </ul>
+        </div>
+
+        <h4>Proper Testing Workflow (Step by Step):</h4>
+        <pre>
+# STEP 1: Full refresh with limited data (January 2017)
+dbt run --select int_customer_daily_features_inc --full-refresh \
+  --vars '{max_date: "2017-01-31"}'
+
+# Check what was built:
+# SELECT MIN(date), MAX(date), COUNT(*)
+# FROM int_customer_daily_features_inc;
+
+# STEP 2: Check the compiled SQL (CREATE TABLE)
+cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
+# Should see CREATE TABLE statement, no is_incremental() logic
+
+# STEP 3: Full refresh with more data (February 2017)
+dbt run --select int_customer_daily_features_inc --full-refresh \
+  --vars '{max_date: "2017-02-28"}'
+
+# Verify more data was added
+
+# STEP 4: Now test incremental behavior (March 2017)
+dbt run --select int_customer_daily_features_inc \
+  --vars '{max_date: "2017-03-31"}'
+
+# STEP 5: Check the incremental SQL (MERGE statement)
+cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
+# Should see MERGE statement with incremental logic
+
+# STEP 6: Verify only new data was processed
+# Count should increase, but only with March data</pre>
         
         <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
         <div id="solution3" class="solution">
@@ -970,54 +1003,6 @@ FROM customer_dates cd
 LEFT JOIN daily_payments dp
     ON cd.customer_id = dp.customer_id
     AND cd.date = dp.order_date</pre>
-            
-            <h4>Proper Testing Workflow (Step by Step):</h4>
-            <pre>
-# STEP 1: Full refresh with limited data (January 2017)
-dbt run --select int_customer_daily_features_inc --full-refresh \
-  --vars '{max_date: "2017-01-31"}'
-
-# Check what was built:
-# SELECT MIN(date), MAX(date), COUNT(*)
-# FROM int_customer_daily_features_inc;
-
-# STEP 2: Check the compiled SQL (CREATE TABLE)
-cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
-# Should see CREATE TABLE statement, no is_incremental() logic
-
-# STEP 3: Full refresh with more data (February 2017)
-dbt run --select int_customer_daily_features_inc --full-refresh \
-  --vars '{max_date: "2017-02-28"}'
-
-# Verify more data was added
-
-# STEP 4: Now test incremental behavior (March 2017)
-dbt run --select int_customer_daily_features_inc \
-  --vars '{max_date: "2017-03-31"}'
-
-# STEP 5: Check the incremental SQL (MERGE statement)
-cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
-# Should see MERGE statement with incremental logic
-
-# STEP 6: Verify only new data was processed
-# Count should increase, but only with March data</pre>
-            
-            <div class="info-box">
-                <h3>🔍 What to Look for in Compiled SQL:</h3>
-                <p><strong>Full Refresh:</strong></p>
-                <ul>
-                    <li><code>CREATE TABLE</code> statement</li>
-                    <li>No <code>is_incremental()</code> logic in WHERE clauses</li>
-                    <li>Processes all data within date limits</li>
-                </ul>
-                
-                <p><strong>Incremental Run:</strong></p>
-                <ul>
-                    <li><code>MERGE</code> or <code>INSERT</code> statement</li>
-                    <li>Incremental logic in WHERE clauses</li>
-                    <li>Only recent data processed</li>
-                </ul>
-            </div>
             
             <p><strong>Validate the Magic Happened:</strong></p>
             <pre>
@@ -1272,41 +1257,6 @@ SELECT
 FROM prediction_dates pd
 LEFT JOIN point_in_time_payments pit
     ON pd.date_day = pit.prediction_date</pre>
-            
-            <h4>Test the Ingestion Time Tracking</h4>
-            <pre>
-# Build point-in-time correct features
-dbt run --select int_payment_features_ingestion
-
--- Verify point-in-time correctness in your database:
- SELECT 
-    date,
-    customer_id,
-    orders_count,
-    total_payments
- FROM int_payment_features_ingestion
- ORDER BY date, customer_id
- LIMIT 100;</pre>
-            
-            <div class="info-box">
-                <h3>📊 Key Benefits of Ingestion Time Tracking:</h3>
-                
-                <ul>
-                    <li><strong>Perfect Point-in-Time Accuracy:</strong> Features reflect exactly what data was available at prediction time</li>
-                    <li><strong>Eliminates Training/Serving Skew:</strong> Training and inference use the same data availability logic</li>
-                    <li><strong>Regulatory Compliance:</strong> Audit trail of when data entered the system</li>
-                    <li><strong>Late Data Visibility:</strong> Can measure and monitor data arrival patterns</li>
-                    <li><strong>Best for:</strong> Financial systems, high-stakes ML models, mission-critical applications</li>
-                </ul>
-                
-                <p><strong>Important Considerations:</strong></p>
-                <ul>
-                    <li>Requires schema changes to add ingestion time columns</li>
-                    <li>More complex to implement than simple lookback windows</li>
-                    <li>May require additional storage for tracking metadata</li>
-                    <li>Worth the complexity when accuracy is critical</li>
-                </ul>
-            </div>
         </div>
         
         <div class="optional-challenge">
