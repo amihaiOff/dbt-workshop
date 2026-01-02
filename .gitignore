@@ -3,3 +3,4 @@ dbt_utils/
 .user.yml
 .DS_Store
 package-lock.yml
+CLAUDE.md

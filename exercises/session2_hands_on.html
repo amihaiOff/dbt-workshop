@@ -417,43 +417,49 @@ dbt run --vars '{lookback_days: [7, 14, 30], churn_threshold: 120}'
     <!-- Challenge 1: Variables - ENHANCED -->
     <div id="challenge-1" class="challenge-box">
         <h2>🎯 Challenge 1: Master Variable Hierarchy</h2>
-        <p>Learn how dbt resolves variables from different sources and test the hierarchy in action.</p>
-        
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Set up variables at project level</li>
-            <li>Override with command line variables</li>
-            <li>Update the daily features model to use variables</li>
-            <li>Test variable resolution priority</li>
-        </ol>
-        
+        <p>In Session 1, you created <code>int_customer_daily_features</code> with hardcoded <code>lookback_days = [3, 7, 14]</code>. Now make it configurable using dbt's variable hierarchy!</p>
+
+        <div class="warning-box">
+            <h3>🎯 Your Goal</h3>
+            <p>Modify <code>int_customer_daily_features.sql</code> to use the <code>lookback_days</code> variable, then test dbt's variable resolution hierarchy:</p>
+            <ol>
+                <li><strong>Model Default:</strong> Set a default value in the model itself using <code>var('lookback_days', [7, 14])</code></li>
+                <li><strong>Project Level:</strong> Override it in <code>dbt_project.yml</code> with <code>[3, 7, 14]</code></li>
+                <li><strong>Command Line:</strong> Override at runtime with <code>--vars '{lookback_days: [1, 5, 10]}'</code></li>
+            </ol>
+            <p><strong>Test it:</strong> Run the model 3 times and watch the logs to see which value gets used!</p>
+        </div>
+
+        <h3>Step-by-Step Instructions:</h3>
+
+        <h4>Step 1: Update Your Model to Use Variables</h4>
+        <p>Modify <code>models/intermediate/int_customer_daily_features.sql</code> to use variables instead of hardcoded values.</p>
+
+        <h4>Step 2: Add Project-Level Variables</h4>
+        <p>Add variables to <code>dbt_project.yml</code> (these will override the model defaults).</p>
+
+        <h4>Step 3: Test the Hierarchy</h4>
+        <p>Run the model three different ways to see variable resolution in action:</p>
+        <ul>
+            <li><strong>Test 1:</strong> Comment out project vars, run normally → Uses model default</li>
+            <li><strong>Test 2:</strong> Uncomment project vars, run normally → Uses project-level vars</li>
+            <li><strong>Test 3:</strong> Run with <code>--vars</code> flag → Command line wins!</li>
+        </ul>
+
         <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
         <div id="solution1" class="solution">
-            <h4>Step 1: Add to dbt_project.yml (Project Level)</h4>
-            <pre>
-# Add this to your dbt_project.yml
-vars:
-  lookback_days: [3, 7, 14]
-  max_date: '2018-10-31'
-  churn_threshold_days: 90
-  min_order_value: 10</pre>
-            
-            <h4>Step 2: Update models/intermediate/int_customer_daily_features.sql</h4>
+            <h4>Step 1: Update models/intermediate/int_customer_daily_features.sql</h4>
             <pre>
 {{ config(materialized='table') }}
 
--- Use variables with hierarchy demonstration
-{% set lookback_days = var('lookback_days') %}
-{% set max_date = var('max_date') %}
-{% set min_order_value = var('min_order_value', 0) %}
+-- Set variable with DEFAULT VALUE (lowest priority)
+{% set lookback_days = var('lookback_days', [7, 14]) %}
 
--- Log variable values to see what's being used
-{{ log("Using lookback_days: " ~ lookback_days, info=True) }}
-{{ log("Max feature date: " ~ max_date, info=True) }}
-{{ log("Min order value: " ~ min_order_value, info=True) }}
+-- Log to console so you can see which value is being used
+{{ log("🔍 Using lookback_days: " ~ lookback_days, info=True) }}
 
 WITH customer_dates AS (
-    SELECT 
+    SELECT
         c.customer_id,
         c.landing_date,
         d.date_day as date
@@ -466,7 +472,7 @@ WITH customer_dates AS (
         ) }}
     ) d
     WHERE d.date_day >= c.landing_date
-      AND d.date_day <= '{{ max_date }}'::date
+      AND d.date_day <= '2018-10-31'::date
 ),
 
 daily_payments AS (
@@ -479,7 +485,6 @@ daily_payments AS (
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
     WHERE o.order_status NOT IN ('canceled', 'unavailable')
-      AND p.payment_value >= {{ min_order_value }}  -- Using variable
     GROUP BY 1, 2
 ),
 
@@ -488,15 +493,23 @@ features AS (
         cd.customer_id,
         cd.date,
         cd.landing_date,
-        
-        -- Cumulative payment value
+
+        -- Cumulative metrics
         SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) as total_payment_value,
-        
-        -- Dynamic rolling window features
+
+        cd.date - cd.landing_date as days_since_landing,
+
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) as total_orders,
+
+        -- Dynamic rolling window features using the variable!
         {% for days in lookback_days %}
         SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
             PARTITION BY cd.customer_id 
@@ -505,15 +518,12 @@ features AS (
         ) as payment_{{ days }}d,
         
         SUM(COALESCE(dp.daily_order_count, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
             ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-        ) as orders_{{ days }}d,
+        ) as orders_{{ days }}d{% if not loop.last %},{% endif %}
         {% endfor %}
-        
-        -- Days metrics
-        cd.date - cd.landing_date as days_since_landing
-        
+
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
         ON cd.customer_id = dp.customer_id
@@ -521,48 +531,47 @@ features AS (
 )
 
 SELECT * FROM features</pre>
-            
-            <h4>Step 3: Test Variable Hierarchy</h4>
+
+            <h4>Step 2: Add to dbt_project.yml (Project Level Variables)</h4>
             <pre>
-# Test 1: Use project-level variables (from dbt_project.yml)
+# Add this to your dbt_project.yml file
+vars:
+  lookback_days: [3, 7, 14]</pre>
+
+            <h4>Step 3: Test the Variable Hierarchy</h4>
+            <pre>
+# Test 1: Comment out the vars in dbt_project.yml, then run
 dbt run --select int_customer_daily_features
-# Check logs - should show [3, 7, 14] for lookback_days
+# 📊 Check logs - should show: "Using lookback_days: [7, 14]" (model default)
 
-# Test 2: Override with command line (highest priority)
+# Test 2: Uncomment the vars in dbt_project.yml, then run
+dbt run --select int_customer_daily_features
+# 📊 Check logs - should show: "Using lookback_days: [3, 7, 14]" (project level)
+
+# Test 3: Override with command line (highest priority!)
 dbt run --select int_customer_daily_features --vars '{lookback_days: [1, 5, 10]}'
-# Check logs - should show [1, 5, 10] for lookback_days
+# 📊 Check logs - should show: "Using lookback_days: [1, 5, 10]" (command line wins!)
 
-# Test 3: Partial override
-dbt run --select int_customer_daily_features --vars '{max_date: "2018-06-30"}'
-# lookback_days should come from project, max_date from command line
-
-# Test 4: See compiled SQL differences
+# Test 4: Verify compiled SQL changes
 dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
-# Check target/compiled/.../int_customer_daily_features.sql</pre>
-            
-            <p><strong>Variable Resolution Test:</strong></p>
-            <p>Watch the dbt logs during runs to see which variable values are actually being used!</p>
-        </div>
-        
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Environment-Specific Variables</h3>
-            <p>Set up different variables for dev vs prod environments:</p>
-            <ul>
-                <li>Dev: Smaller lookback windows, limited date ranges</li>
-                <li>Prod: Full date ranges, longer lookback windows</li>
-                <li>Use <code>target.name</code> to conditionally set variables</li>
-            </ul>
-            
-            <p><strong>Example:</strong></p>
-            <pre>
--- In your model
-{% if target.name == 'dev' %}
-    {% set lookback_days = [3, 7] %}
-{% else %}
-    {% set lookback_days = [3, 7, 14, 30] %}
-{% endif %}
+# Check target/compiled/.../int_customer_daily_features.sql
+# You should see only payment_30d and orders_30d columns!</pre>
 
--- Run with: dbt run --target dev  OR  dbt run --target prod</pre>
+            <div class="info-box">
+                <h4>🎓 What You Learned</h4>
+                <p><strong>Variable Resolution Hierarchy (highest to lowest priority):</strong></p>
+                <ol>
+                    <li><code>--vars</code> flag (command line) ← <strong>WINS</strong></li>
+                    <li><code>dbt_project.yml</code> vars section (project level)</li>
+                    <li><code>var('name', default)</code> second parameter (model default)</li>
+                </ol>
+                <p>This hierarchy allows you to:</p>
+                <ul>
+                    <li>Set sensible defaults in models</li>
+                    <li>Configure project-wide settings in dbt_project.yml</li>
+                    <li>Override for specific runs or testing with --vars</li>
+                </ul>
+            </div>
         </div>
     </div>
 

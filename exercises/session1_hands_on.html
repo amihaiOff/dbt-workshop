@@ -569,14 +569,33 @@ sources:
         </ul>
     </div>
 
-    <!-- Data Filtering Reference -->
-    <div class="info-box">
-        <h3>📊 Data Filtering Reference</h3>
-        <p>Our staging models apply filters to ensure data quality. Here's a quick reference of what gets filtered:</p>
-        
-        <button class="solution-button" onclick="toggleSolution('filter_reference')">Show Filter Details</button>
-        <div id="filter_reference" class="solution">
-            <h4>Filters Applied in Staging Models</h4>
+    <!-- Challenge 1 -->
+    <div id="challenge-1" class="challenge-box">
+        <h2>🎯 Challenge 1: Create Staging Tables</h2>
+        <p>Create clean staging tables for the Olist data. <strong>Focus on type casting and data quality filters.</strong></p>
+
+        <div class="warning-box">
+            <h3>⚠️ Important: Apply Filters and Type Casts in Staging Models</h3>
+            <p>Staging models are where we clean and standardize raw data. You must:</p>
+            <ul>
+                <li><strong>Cast all columns to proper data types</strong> (timestamps, decimals, integers)</li>
+                <li><strong>Filter out invalid or test data</strong> to ensure data quality</li>
+                <li>Add descriptive column names where needed</li>
+            </ul>
+        </div>
+
+        <h3>Requirements:</h3>
+        <ol>
+            <li>Create <code>models/staging/schema.yml</code> with source definitions</li>
+            <li>Create <code>stg_orders.sql</code> with proper type casting and filters</li>
+            <li>Create <code>stg_customers.sql</code> with type casting and filters</li>
+            <li>Create <code>stg_order_items.sql</code> with type casting and filters</li>
+            <li>Create <code>stg_order_payments.sql</code> with type casting and filters</li>
+        </ol>
+
+        <h3>Data Quality Filters to Apply:</h3>
+        <div class="info-box">
+            <p>Each staging model should filter out invalid data. Here's what to filter in each model:</p>
             <table>
                 <thead>
                     <tr>
@@ -600,16 +619,10 @@ sources:
                         <td>Ensure valid order dates</td>
                     </tr>
                     <tr>
-                        <td><code>stg_order_payments</code></td>
-                        <td>order_id</td>
+                        <td><code>stg_customers</code></td>
+                        <td>customer_id</td>
                         <td>IS NOT NULL</td>
-                        <td>Ensure linkable payments</td>
-                    </tr>
-                    <tr>
-                        <td><code>stg_order_payments</code></td>
-                        <td>payment_value</td>
-                        <td>&gt; 0</td>
-                        <td>Exclude invalid payments</td>
+                        <td>Ensure valid customer records</td>
                     </tr>
                     <tr>
                         <td><code>stg_order_items</code></td>
@@ -624,95 +637,29 @@ sources:
                         <td>Exclude invalid prices</td>
                     </tr>
                     <tr>
-                        <td><code>stg_customers</code></td>
-                        <td>customer_id</td>
+                        <td><code>stg_order_payments</code></td>
+                        <td>order_id</td>
                         <td>IS NOT NULL</td>
-                        <td>Ensure valid customer records</td>
-                    </tr>
-                    <tr style="background-color: #e8f4fd;">
-                        <td colspan="4"><strong>Intermediate Tables</strong></td>
+                        <td>Ensure linkable payments</td>
                     </tr>
                     <tr>
-                        <td><code>int_customer_landing</code></td>
-                        <td>order_status</td>
-                        <td>NOT IN ('canceled', 'unavailable')</td>
-                        <td>Only count successful orders for landing date</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_customer_daily_features</code></td>
-                        <td>order_status</td>
-                        <td>NOT IN ('canceled', 'unavailable')</td>
-                        <td>Only include successful orders in features</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_customer_daily_features</code></td>
+                        <td><code>stg_order_payments</code></td>
                         <td>payment_value</td>
-                        <td>&gt;= min_order_value (variable)</td>
-                        <td>Filter low-value orders (configurable)</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_customer_daily_features_inc</code></td>
-                        <td>order_status</td>
-                        <td>NOT IN ('canceled', 'unavailable')</td>
-                        <td>Only include successful orders in features</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_customer_labels</code></td>
-                        <td>order_status</td>
-                        <td>NOT IN ('canceled', 'unavailable')</td>
-                        <td>Only count successful orders for churn labels</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_payment_features_ingestion</code></td>
-                        <td>order_status</td>
-                        <td>NOT IN ('canceled', 'unavailable')</td>
-                        <td>Only include successful orders</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_payment_features_ingestion</code></td>
-                        <td>simulated_arrival_time</td>
-                        <td>&lt;= prediction_date + 1 day</td>
-                        <td>Point-in-time correctness: only use arrived data</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_payment_features_ingestion</code></td>
-                        <td>order_purchase_timestamp</td>
-                        <td>&lt;= prediction_date</td>
-                        <td>No future data leakage</td>
-                    </tr>
-                    <tr>
-                        <td><code>int_payment_features_lookback</code></td>
-                        <td>order_status</td>
-                        <td>NOT IN ('canceled', 'unavailable')</td>
-                        <td>Only include successful orders</td>
+                        <td>&gt; 0</td>
+                        <td>Exclude invalid payments</td>
                     </tr>
                 </tbody>
             </table>
-          </div>
-      </div>
+        </div>
 
-    <!-- Challenge 1 -->
-    <div id="challenge-1" class="challenge-box">
-        <h2>🎯 Challenge 1: Create Staging Tables</h2>
-        <p>Create clean staging tables for the Olist data. Focus on type casting and cleaning.</p>
-        
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Create <code>models/staging/schema.yml</code> with source definitions</li>
-            <li>Create <code>stg_orders.sql</code> with proper type casting</li>
-            <li>Create <code>stg_customers.sql</code></li>
-            <li>Create <code>stg_order_items.sql</code></li>
-            <li>Create <code>stg_order_payments.sql</code></li>
-        </ol>
-        
-        <h3>Tasks:</h3>
+        <h3>Type Casting Guide:</h3>
         <ul>
-            <li>Cast timestamps properly (use <code>::timestamp</code>)</li>
-            <li>Cast numeric fields appropriately</li>
-            <li>Rename columns for consistency (snake_case)</li>
-            <li>Filter out test orders if any</li>
+            <li><strong>Timestamps:</strong> Cast using <code>::timestamp</code> (e.g., <code>order_purchase_timestamp::timestamp</code>)</li>
+            <li><strong>Decimals:</strong> Cast using <code>::decimal(10,2)</code> for prices and monetary values</li>
+            <li><strong>Integers:</strong> Cast using <code>::int</code> for counts and IDs</li>
+            <li><strong>Dates:</strong> Use <code>DATE(timestamp_column)</code> to extract date from timestamp</li>
         </ul>
-        
+
         <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
         <div id="solution1" class="solution">
             <h4>models/staging/schema.yml</h4>
