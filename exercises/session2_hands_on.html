@@ -676,9 +676,8 @@ version: 2
 
 snapshots:
   - name: snap_seller_tier
-    relation: source('olist_data', 'int_seller_performance')
+    relation: ref('int_seller_performance')
     config:
-      schema: olist_data
       unique_key: seller_id
       strategy: timestamp
       updated_at: updated_at</pre>
@@ -687,10 +686,10 @@ snapshots:
                 <h4>📝 Understanding the Snapshot Configuration</h4>
                 <ul>
                     <li><code>name</code>: Name of the snapshot table that will be created</li>
-                    <li><code>relation</code>: The model or source to snapshot - here we snapshot the <code>int_seller_performance</code> model</li>
-                    <li><code>schema</code>: Where to create the snapshot table</li>
+                    <li><code>relation</code>: The model or source to snapshot - here we use <code>ref('int_seller_performance')</code> to snapshot the model</li>
+                    <li><code>config</code>: Configuration block with snapshot settings</li>
                     <li><code>unique_key</code>: Column that uniquely identifies each row (seller_id - one row per seller)</li>
-                    <li><code>strategy: 'timestamp'</code>: Detect changes when the <code>updated_at</code> column changes</li>
+                    <li><code>strategy: timestamp</code>: Detect changes when the <code>updated_at</code> column changes</li>
                     <li><code>updated_at</code>: Column to monitor - when this changes, dbt knows the seller's data changed</li>
                 </ul>
                 <p><strong>Note:</strong> dbt will automatically add <code>dbt_valid_from</code>, <code>dbt_valid_to</code>, and <code>dbt_updated_at</code> columns to track the snapshot history.</p>

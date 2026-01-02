@@ -1,0 +1,9 @@
+version: 2
+
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at

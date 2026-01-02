@@ -558,21 +558,16 @@ SELECT
 FROM seller_metrics
 EOF
 
-        cat > snapshots/snap_seller_tier.sql << 'EOF'
-{% snapshot snap_seller_tier %}
+        cat > snapshots/snapshots.yml << 'EOF'
+version: 2
 
-{{
-    config(
-      target_schema='olist_data',
-      strategy='timestamp',
-      unique_key='seller_id',
-      updated_at='updated_at'
-    )
-}}
-
-select * from {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at
 EOF
 
         echo "Step 4: Running dbt models..."
@@ -911,21 +906,16 @@ SELECT
 FROM customer_metrics
 EOF
 
-        cat > snapshots/snap_seller_tier.sql << 'EOF'
-{% snapshot snap_seller_tier %}
+        cat > snapshots/snapshots.yml << 'EOF'
+version: 2
 
-{{
-    config(
-      target_schema='olist_data',
-      strategy='timestamp',
-      unique_key='seller_id',
-      updated_at='updated_at'
-    )
-}}
-
-select * from {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at
 EOF
 
         # Session 2 incremental model (carried forward to Session 3)
@@ -1473,21 +1463,16 @@ SELECT
 FROM customer_metrics
 EOF
 
-        cat > snapshots/snap_seller_tier.sql << 'EOF'
-{% snapshot snap_seller_tier %}
+        cat > snapshots/snapshots.yml << 'EOF'
+version: 2
 
-{{
-    config(
-      target_schema='olist_data',
-      strategy='timestamp',
-      unique_key='seller_id',
-      updated_at='updated_at'
-    )
-}}
-
-select * from {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at
 EOF
 
         # Seeds
