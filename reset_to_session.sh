@@ -516,6 +516,9 @@ EOF
 -- Use variable to control analysis date for testing
 {% set snapshot_date = var('snapshot_date', '2018-10-17') %}
 
+-- Log which date we're using
+{{ log("📅 Analyzing seller performance up to: " ~ snapshot_date, info=True) }}
+
 WITH seller_metrics AS (
     SELECT
         seller_id,
@@ -557,16 +560,17 @@ EOF
 
         cat > snapshots/snap_seller_tier.sql << 'EOF'
 {% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
 
-    SELECT * FROM {{ ref('int_seller_performance') }}
+{{
+    config(
+      target_schema='olist_data',
+      strategy='timestamp',
+      unique_key='seller_id',
+      updated_at='updated_at'
+    )
+}}
+
+select * from {{ ref('int_seller_performance') }}
 
 {% endsnapshot %}
 EOF
@@ -827,6 +831,9 @@ EOF
 -- Use variable to control analysis date for testing
 {% set snapshot_date = var('snapshot_date', '2018-10-17') %}
 
+-- Log which date we're using
+{{ log("📅 Analyzing seller performance up to: " ~ snapshot_date, info=True) }}
+
 WITH seller_metrics AS (
     SELECT
         seller_id,
@@ -906,16 +913,17 @@ EOF
 
         cat > snapshots/snap_seller_tier.sql << 'EOF'
 {% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
 
-    SELECT * FROM {{ ref('int_seller_performance') }}
+{{
+    config(
+      target_schema='olist_data',
+      strategy='timestamp',
+      unique_key='seller_id',
+      updated_at='updated_at'
+    )
+}}
+
+select * from {{ ref('int_seller_performance') }}
 
 {% endsnapshot %}
 EOF
@@ -1467,16 +1475,17 @@ EOF
 
         cat > snapshots/snap_seller_tier.sql << 'EOF'
 {% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
 
-    SELECT * FROM {{ ref('int_seller_performance') }}
+{{
+    config(
+      target_schema='olist_data',
+      strategy='timestamp',
+      unique_key='seller_id',
+      updated_at='updated_at'
+    )
+}}
+
+select * from {{ ref('int_seller_performance') }}
 
 {% endsnapshot %}
 EOF

@@ -579,20 +579,23 @@ dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
 
     <div class="info-box">
         <h3>Understanding SCD Type 2 with dbt Snapshots</h3>
+        <p><em>We covered this in the presentation. Click below if you need a reminder.</em></p>
 
-        <p><strong>What are Slowly Changing Dimensions?</strong></p>
-        <p>Business attributes that change over time (seller tiers, customer segments, product categories). We need to track history for analysis and point-in-time correctness.</p>
+        <button class="solution-button" onclick="toggleSolution('scd_reminder')">Show SCD Type 2 Reminder</button>
+        <div id="scd_reminder" class="solution">
+            <p><strong>What are Slowly Changing Dimensions?</strong></p>
+            <p>Business attributes that change over time (seller tiers, customer segments, product categories). We need to track history for analysis and point-in-time correctness.</p>
 
-        <p><strong>dbt Snapshots Solution:</strong></p>
-        <ul>
-            <li>Automatically tracks changes in source tables</li>
-            <li>Creates SCD Type 2 tables with validity periods</li>
-            <li>Adds <code>dbt_valid_from</code> and <code>dbt_valid_to</code> columns</li>
-            <li>Runs on a schedule to capture state changes</li>
-        </ul>
+            <p><strong>dbt Snapshots Solution:</strong></p>
+            <ul>
+                <li>Automatically tracks changes in source tables</li>
+                <li>Creates SCD Type 2 tables with validity periods</li>
+                <li>Adds <code>dbt_valid_from</code> and <code>dbt_valid_to</code> columns</li>
+                <li>Runs on a schedule to capture state changes</li>
+            </ul>
 
-        <p><strong>How it works:</strong></p>
-        <pre>
+            <p><strong>How it works:</strong></p>
+            <pre>
 -- First run: Takes snapshot of current state
 -- Subsequent runs: Detects changes and creates new rows with validity periods
 -- Result: Complete history of all state changes
@@ -602,220 +605,194 @@ S001      | bronze      | 500           | 2017-01-01     | 2017-06-30
 S001      | silver      | 5000          | 2017-06-30     | 2018-01-15
 S001      | gold        | 12000         | 2018-01-15     | NULL</pre>
 
-        <p><strong>Real-World Use Cases:</strong></p>
-        <ul>
-            <li><strong>Seller Performance:</strong> Track seller tier changes (bronze → silver → gold)</li>
-            <li><strong>Customer Segments:</strong> Track customer lifecycle (prospect → active → VIP)</li>
-            <li><strong>Product Pricing:</strong> Track price tier changes over time</li>
-            <li><strong>Inventory Status:</strong> Track stock level categories (in-stock → low → out-of-stock)</li>
-        </ul>
+            <p><strong>Real-World Use Cases:</strong></p>
+            <ul>
+                <li><strong>Seller Performance:</strong> Track seller tier changes (bronze → silver → gold)</li>
+                <li><strong>Customer Segments:</strong> Track customer lifecycle (prospect → active → VIP)</li>
+                <li><strong>Product Pricing:</strong> Track price tier changes over time</li>
+                <li><strong>Inventory Status:</strong> Track stock level categories (in-stock → low → out-of-stock)</li>
+            </ul>
+        </div>
     </div>
 
     <!-- Challenge 2: SCD Type 2 - NEW SELLER TIER VERSION -->
     <div id="challenge-2" class="challenge-box">
         <h2>🎯 Challenge 2: Track Seller Performance with Snapshots</h2>
-        <p>Build a complete SCD Type 2 solution to track how sellers grow from bronze → silver → gold → platinum tier over time.</p>
+        <p><strong>We've pre-built the staging and intermediate models for you!</strong> Your job is to create the snapshot and watch sellers progress through tiers over time.</p>
 
         <div class="info-box">
             <h3>📊 Business Context</h3>
-            <p>In this e-commerce platform, sellers start small and grow over time. We want to track their progression through performance tiers to:</p>
+            <p>In this e-commerce platform, sellers start small and grow over time. We want to track their progression through performance tiers:</p>
             <ul>
-                <li>Analyze which sellers are improving vs declining</li>
-                <li>Understand how long sellers stay in each tier</li>
-                <li>Calculate tier-specific metrics (avg time to gold, churn rate by tier)</li>
-                <li>Enable point-in-time reporting ("Who were our gold sellers in Q1 2017?")</li>
+                <li><strong>Bronze:</strong> 1-19 orders (new/small sellers)</li>
+                <li><strong>Silver:</strong> 20-99 orders (growing sellers)</li>
+                <li><strong>Gold:</strong> 100-499 orders (high performers)</li>
+                <li><strong>Platinum:</strong> 500+ orders (top performers)</li>
             </ul>
+            <p>As sellers get more orders, they move up tiers. Snapshots let us track this history!</p>
         </div>
-
-        <h3>🎯 Your Mission:</h3>
-        <p>You'll build 3 models to track seller tier changes. Here are the detailed requirements for each:</p>
-
-        <h4>Part 1: Staging Model - <code>stg_order_items_snapshot.sql</code></h4>
-        <p><strong>Purpose:</strong> Clean order items data by joining with orders table and filtering out invalid data.</p>
-        <p><strong>Data Cleaning Requirements:</strong></p>
-        <ul>
-            <li>Join <code>olist_order_items</code> with <code>olist_orders</code> to get order timestamps</li>
-            <li>Filter out NULL <code>order_id</code> and <code>seller_id</code></li>
-            <li>Filter out orders with <code>price &lt;= 0</code> (invalid/test data)</li>
-            <li>Filter out canceled/unavailable orders: <code>order_status NOT IN ('canceled', 'unavailable')</code></li>
-            <li>Filter out orders with NULL <code>order_purchase_timestamp</code></li>
-            <li>Convert <code>price</code> and <code>freight_value</code> to DECIMAL(10,2)</li>
-            <li>Include: order_id, order_item_id, product_id, seller_id, price, freight_value, order_purchase_timestamp, order_date, order_status</li>
-        </ul>
-
-        <h4>Part 2: Intermediate Model - <code>int_seller_performance.sql</code></h4>
-        <p><strong>Purpose:</strong> Calculate seller metrics and assign tier based on order volume.</p>
 
         <div class="warning-box">
-            <h4>🔑 IMPORTANT: Using Variables for Time-Based Testing</h4>
-            <p>To test how sellers progress through tiers over time, you need to use a variable called <code>snapshot_date</code> that controls "how much data to include."</p>
-            <p><strong>Why?</strong> In the real world, you'd run snapshots daily. For testing, we simulate this by filtering data up to different dates:</p>
+            <h3>🔑 Understanding dbt Snapshot Timestamps</h3>
+            <p><strong>IMPORTANT:</strong> The columns <code>dbt_valid_from</code> and <code>dbt_valid_to</code> are NOT business dates from your data. They are the <strong>actual timestamps when you ran the <code>dbt snapshot</code> command!</strong></p>
+
+            <p><strong>Example:</strong></p>
             <ul>
-                <li>Run 1: Include orders up to 2017-01-01 → See mostly bronze sellers (new sellers)</li>
-                <li>Run 2: Include orders up to 2017-06-30 → Some bronze → silver upgrades!</li>
-                <li>Run 3: Include orders up to 2018-01-31 → Gold tier sellers appear!</li>
-                <li>Run 4: Include orders up to 2018-10-17 → Platinum tier unlocked!</li>
+                <li>You run <code>dbt snapshot</code> on January 15, 2025 at 10:00 AM → <code>dbt_valid_from = 2025-01-15 10:00:00</code></li>
+                <li>Seller changes tier, you run snapshot again on January 20, 2025 at 2:30 PM → Old row gets <code>dbt_valid_to = 2025-01-20 14:30:00</code>, new row gets <code>dbt_valid_from = 2025-01-20 14:30:00</code></li>
             </ul>
-            <p><strong>How to implement:</strong> At the top of your model, use <code>{% set snapshot_date = var('snapshot_date', '2018-10-17') %}</code>, then filter with <code>WHERE order_date &lt;= '{{ snapshot_date }}'::date</code></p>
+
+            <p>This means:</p>
+            <ul>
+                <li><code>dbt_valid_from</code> = When you first captured this state</li>
+                <li><code>dbt_valid_to</code> = When this state changed (NULL = current state)</li>
+                <li>These are <strong>snapshot execution times</strong>, not business event times!</li>
+            </ul>
         </div>
 
-        <p><strong>Tier Classification Rules (based on order count):</strong></p>
-        <ul>
-            <li><strong>Platinum:</strong> 500+ orders (top 1% performers)</li>
-            <li><strong>Gold:</strong> 100-499 orders (high performers)</li>
-            <li><strong>Silver:</strong> 20-99 orders (growing sellers)</li>
-            <li><strong>Bronze:</strong> 1-19 orders (new/small sellers)</li>
-        </ul>
+        <h3>📦 Pre-Built Models (Already Created for You)</h3>
 
-        <p><strong>Metrics to Calculate per Seller:</strong></p>
-        <ul>
-            <li><code>seller_id</code> - Primary key</li>
-            <li><code>seller_tier</code> - Classification based on order count (use CASE statement)</li>
-            <li><code>total_orders</code> - COUNT(DISTINCT order_id)</li>
-            <li><code>unique_products</code> - COUNT(DISTINCT product_id)</li>
-            <li><code>total_revenue</code> - SUM(price)</li>
-            <li><code>avg_order_value</code> - AVG(price)</li>
-            <li><code>first_sale_date</code> - MIN(order_date)</li>
-            <li><code>last_sale_date</code> - MAX(order_date)</li>
-            <li><code>updated_at</code> - CURRENT_TIMESTAMP (required for snapshot tracking)</li>
-        </ul>
+        <h4>1. Staging Model: <code>stg_order_items_snapshot.sql</code> ✅</h4>
+        <p>This model joins order items with orders, filters out invalid data, and gives us clean seller transaction data. <strong>Already created in your project!</strong></p>
 
-        <h4>Part 3: Snapshot - <code>snap_seller_tier.sql</code></h4>
-        <p><strong>Purpose:</strong> Automatically track when sellers change tiers using dbt's snapshot functionality.</p>
-        <p><strong>Snapshot Configuration:</strong></p>
-        <ul>
-            <li><code>target_schema</code>: 'olist_data' (keep snapshots in the regular schema)</li>
-            <li><code>strategy</code>: 'timestamp' (detect changes based on timestamp column)</li>
-            <li><code>unique_key</code>: 'seller_id' (one row per seller)</li>
-            <li><code>updated_at</code>: 'updated_at' (column to monitor for changes)</li>
-        </ul>
+        <h4>2. Intermediate Model: <code>int_seller_performance.sql</code> ✅</h4>
+        <p>This model calculates seller metrics and assigns tiers. <strong>Already created in your project!</strong></p>
+        <p>It uses a variable <code>snapshot_date</code> to control which orders to include, allowing us to "rewind time" and see how sellers performed at different dates.</p>
 
-        <h4>Part 4: Testing Workflow</h4>
-        <p>Follow these steps to see sellers progress through tiers over time:</p>
-        <ol>
-            <li>Build the staging model once</li>
-            <li>Build performance model with <code>snapshot_date = "2017-01-01"</code>, then take snapshot</li>
-            <li>Rebuild performance with <code>snapshot_date = "2017-06-30"</code>, then snapshot again → Detect changes!</li>
-            <li>Continue with 2018-01-31 and 2018-10-17 to see full progression</li>
-        </ol>
+        <h3>🎯 Your Task: Create the Snapshot and Watch Sellers Progress!</h3>
 
-        <button class="solution-button" onclick="toggleSolution('solution2')">Show Solution</button>
+        <h4>Step-by-Step Testing Workflow</h4>
+        <p><strong>Follow these steps to create the snapshot and see sellers progress through tiers over time.</strong></p>
+
+        <h5>Step 0: Create the snapshot configuration</h5>
+        <p>First, create the snapshot file <code>snapshots/snapshots.yml</code> with the configuration below.</p>
+        <p>📚 <strong>Reference:</strong> <a href="https://docs.getdbt.com/docs/build/snapshots#add-a-snapshot-to-your-project" target="_blank">dbt Snapshots Documentation</a> (we covered this in the presentation)</p>
+
+        <button class="solution-button" onclick="toggleSolution('solution2')">Show Snapshot Configuration</button>
         <div id="solution2" class="solution">
-            <h4>Part 1: models/staging/stg_order_items_snapshot.sql</h4>
+            <h4>Create: snapshots/snapshots.yml</h4>
             <pre>
-{{ config(materialized='table') }}
+version: 2
 
+snapshots:
+  - name: snap_seller_tier
+    relation: source('olist_data', 'int_seller_performance')
+    config:
+      schema: olist_data
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at</pre>
+
+            <div class="info-box">
+                <h4>📝 Understanding the Snapshot Configuration</h4>
+                <ul>
+                    <li><code>name</code>: Name of the snapshot table that will be created</li>
+                    <li><code>relation</code>: The model or source to snapshot - here we snapshot the <code>int_seller_performance</code> model</li>
+                    <li><code>schema</code>: Where to create the snapshot table</li>
+                    <li><code>unique_key</code>: Column that uniquely identifies each row (seller_id - one row per seller)</li>
+                    <li><code>strategy: 'timestamp'</code>: Detect changes when the <code>updated_at</code> column changes</li>
+                    <li><code>updated_at</code>: Column to monitor - when this changes, dbt knows the seller's data changed</li>
+                </ul>
+                <p><strong>Note:</strong> dbt will automatically add <code>dbt_valid_from</code>, <code>dbt_valid_to</code>, and <code>dbt_updated_at</code> columns to track the snapshot history.</p>
+            </div>
+        </div>
+
+        <h5>Step 1: Build and verify the staging model</h5>
+        <pre>dbt run --select stg_order_items_snapshot</pre>
+        <p>✅ This creates clean order item data with ~112K rows. Verify it succeeded before continuing.</p>
+
+        <h5>Step 2: Build int_seller_performance for early 2017</h5>
+            <pre>dbt run --select int_seller_performance --vars '{snapshot_date: "2017-01-01"}'</pre>
+            <p><strong>🔧 What's happening with the variable?</strong></p>
+            <ul>
+                <li>The <code>snapshot_date</code> variable controls which orders to include</li>
+                <li>With <code>"2017-01-01"</code>, we only count orders from 2016 and early 2017</li>
+                <li>This "rewinds time" - sellers look like they did in early 2017 (mostly bronze tier)</li>
+                <li>📊 Check logs - you should see: <code>"📅 Analyzing seller performance up to: 2017-01-01"</code></li>
+            </ul>
+
+            <h5>Step 3: Take first snapshot</h5>
+            <pre>dbt snapshot --select snap_seller_tier</pre>
+            <p><strong>📸 What just happened?</strong></p>
+            <ul>
+                <li>dbt created a snapshot table with ~134 sellers (early sellers only)</li>
+                <li><code>dbt_valid_from</code> is set to RIGHT NOW (when you ran this command) - not 2017!</li>
+                <li>All rows have <code>dbt_valid_to = NULL</code> (current state)</li>
+            </ul>
+
+            <h5>Step 4: Rebuild int_seller_performance with more data</h5>
+            <pre>dbt run --select int_seller_performance --vars '{snapshot_date: "2017-06-30"}'</pre>
+            <p><strong>🔧 What changed?</strong></p>
+            <ul>
+                <li>Now we're including 6 more months of orders (through June 2017)</li>
+                <li>Sellers who had 5 orders in January might have 25 now → upgraded from bronze to silver!</li>
+                <li>📊 Check logs: <code>"📅 Analyzing seller performance up to: 2017-06-30"</code></li>
+            </ul>
+
+            <h5>Step 5: Take second snapshot to detect changes</h5>
+            <pre>dbt snapshot --select snap_seller_tier</pre>
+            <p><strong>📸 Detecting tier changes!</strong></p>
+            <ul>
+                <li>dbt compares the new data with the previous snapshot</li>
+                <li>For sellers whose tier changed: old row gets <code>dbt_valid_to = NOW()</code>, new row created with <code>dbt_valid_from = NOW()</code></li>
+                <li>New sellers appear for the first time with <code>dbt_valid_from = NOW()</code></li>
+                <li>You should see ~997 sellers now (863 new sellers + tier changes)</li>
+            </ul>
+
+            <div class="info-box">
+                <h4>🔍 Example: Watch a Specific Seller Progress Through Tiers</h4>
+                <p>Let's verify tier changes are being tracked! Run this query after Step 5:</p>
+                <pre>
 SELECT
-    oi.order_id,
-    oi.order_item_id,
-    oi.product_id,
-    oi.seller_id,
-    oi.price::DECIMAL(10,2) as price,
-    oi.freight_value::DECIMAL(10,2) as freight_value,
-    o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    DATE(o.order_purchase_timestamp) as order_date,
-    o.order_status
-FROM {{ source('olist_data', 'olist_order_items') }} oi
-INNER JOIN {{ source('olist_data', 'olist_orders') }} o
-    ON oi.order_id = o.order_id
-WHERE oi.order_id IS NOT NULL
-  AND oi.seller_id IS NOT NULL
-  AND oi.price > 0
-  AND o.order_status NOT IN ('canceled', 'unavailable')
-  AND o.order_purchase_timestamp IS NOT NULL</pre>
-
-            <h4>Part 2: models/intermediate/int_seller_performance.sql</h4>
-            <pre>
-{{ config(materialized='table') }}
-
--- Use variable to control analysis date for testing
-{% set snapshot_date = var('snapshot_date', '2018-10-17') %}
-
-WITH seller_metrics AS (
-    SELECT
-        seller_id,
-        COUNT(DISTINCT order_id) as total_orders,
-        COUNT(DISTINCT product_id) as unique_products,
-        SUM(price) as total_revenue,
-        AVG(price) as avg_order_value,
-        MIN(order_date) as first_sale_date,
-        MAX(order_date) as last_sale_date,
-
-        -- Calculate tier based on order volume
-        CASE
-            WHEN COUNT(DISTINCT order_id) >= 500 THEN 'platinum'
-            WHEN COUNT(DISTINCT order_id) >= 100 THEN 'gold'
-            WHEN COUNT(DISTINCT order_id) >= 20 THEN 'silver'
-            ELSE 'bronze'
-        END as seller_tier,
-
-        -- Track when this calculation was made
-        CURRENT_TIMESTAMP as updated_at
-
-    FROM {{ ref('stg_order_items_snapshot') }}
-    WHERE order_date <= '{{ snapshot_date }}'::date
-    GROUP BY seller_id
-)
-
-SELECT
-    seller_id,
     seller_tier,
     total_orders,
-    unique_products,
-    total_revenue,
-    avg_order_value,
-    first_sale_date,
-    last_sale_date,
-    updated_at
-FROM seller_metrics</pre>
+    dbt_valid_from,
+    dbt_valid_to
+FROM olist_data.snap_seller_tier
+WHERE seller_id = '4a3ca9315b744ce9f8e9374361493884'
+ORDER BY dbt_valid_from;</pre>
+                <p><strong>You should see progression like:</strong></p>
+                <ul>
+                    <li><strong>Row 1:</strong> gold tier with ~389 orders, <code>dbt_valid_to</code> has a timestamp (expired when more data came in)</li>
+                    <li><strong>Row 2:</strong> platinum tier with ~1214 orders, <code>dbt_valid_to</code> has a timestamp</li>
+                    <li><strong>Row 3 (after Step 6):</strong> platinum tier with ~1804 orders, <code>dbt_valid_to = NULL</code> (current state)</li>
+                </ul>
+                <p>🎉 This seller went from gold → platinum as they got more orders! The <code>dbt_valid_from</code> and <code>dbt_valid_to</code> timestamps show WHEN YOU RAN the snapshot commands.</p>
+            </div>
 
-            <h4>Part 3: snapshots/snap_seller_tier.sql</h4>
+            <h5>Step 6: Continue with later dates</h5>
             <pre>
-{% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
-
-    SELECT * FROM {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}</pre>
-
-            <h4>Part 4: Testing Commands</h4>
-            <pre>
-# Step 1: Build staging model
-dbt run --select stg_order_items_snapshot
-
-# Step 2: Initial snapshot (Jan 2017)
-dbt run --select int_seller_performance --vars '{snapshot_date: "2017-01-01"}'
-dbt snapshot --select snap_seller_tier
-
-# Step 3: Second snapshot (Jun 2017) - Detect tier changes!
-dbt run --select int_seller_performance --vars '{snapshot_date: "2017-06-30"}'
-dbt snapshot --select snap_seller_tier
-
-# Step 4: Third snapshot (Jan 2018)
+# Early 2018 - gold sellers appear!
 dbt run --select int_seller_performance --vars '{snapshot_date: "2018-01-31"}'
 dbt snapshot --select snap_seller_tier
 
-# Step 5: Final snapshot (Oct 2018)
+# Late 2018 - platinum tier unlocked!
 dbt run --select int_seller_performance --vars '{snapshot_date: "2018-10-17"}'
 dbt snapshot --select snap_seller_tier</pre>
+            <p>After the final snapshot, you'll have ~3,053 sellers with full tier progression history!</p>
+
+            <div class="warning-box">
+                <h4>🎓 What Just Happened?</h4>
+                <p>Each time you ran <code>dbt snapshot</code>:</p>
+                <ul>
+                    <li>dbt checked the <code>updated_at</code> column in <code>int_seller_performance</code></li>
+                    <li>If a seller's tier changed → created a NEW row with <code>dbt_valid_from = NOW()</code></li>
+                    <li>Updated the old row's <code>dbt_valid_to = NOW()</code> to mark when it expired</li>
+                    <li>Rows with <code>dbt_valid_to = NULL</code> are the current state</li>
+                </ul>
+            </div>
 
             <h4>Verification Queries</h4>
 
-            <p><strong>1. View seller tier distribution:</strong></p>
+            <p><strong>1. View current seller tier distribution:</strong></p>
             <pre>
 SELECT seller_tier, COUNT(*) as seller_count
 FROM olist_data.snap_seller_tier
 WHERE dbt_valid_to IS NULL  -- Current state only
-GROUP BY seller_tier;</pre>
+GROUP BY seller_tier
+ORDER BY seller_tier;</pre>
 
-            <p><strong>2. Find sellers who changed tiers (SCD Type 2 proof!):</strong></p>
+            <p><strong>2. Find sellers who changed tiers (SCD Type 2 in action!):</strong></p>
             <pre>
 SELECT seller_id, COUNT(*) as tier_changes
 FROM olist_data.snap_seller_tier
@@ -824,31 +801,32 @@ HAVING COUNT(*) > 1
 ORDER BY tier_changes DESC
 LIMIT 10;</pre>
 
-            <p><strong>3. See a specific seller's progression over time:</strong></p>
+            <p><strong>3. See a specific seller's full tier progression:</strong></p>
             <pre>
+-- First, find a seller who changed tiers:
+SELECT seller_id, COUNT(*) as changes
+FROM olist_data.snap_seller_tier
+GROUP BY seller_id
+HAVING COUNT(*) > 1
+LIMIT 1;
+
+-- Then view their progression:
 SELECT
     seller_tier,
     total_orders,
-    dbt_valid_from,
-    dbt_valid_to
+    dbt_valid_from,  -- When you captured this state
+    dbt_valid_to     -- When this state changed (NULL = current)
 FROM olist_data.snap_seller_tier
-WHERE seller_id = 'YOUR_SELLER_ID_HERE'
+WHERE seller_id = 'PASTE_SELLER_ID_FROM_ABOVE'
 ORDER BY dbt_valid_from;</pre>
 
-            <p><strong>Expected Results:</strong> ~2,000 sellers with tier changes, showing bronze → silver → gold → platinum progressions!</p>
-        </div>
-
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Seller Cohort Analysis</h3>
-            <p>Use the snapshot to analyze seller lifecycle:</p>
-            <ul>
-                <li>Calculate average time to reach each tier (e.g., "90 days to silver")</li>
-                <li>Identify sellers who were downgraded (gold → silver)</li>
-                <li>Create a seller churn analysis (stopped getting orders)</li>
-                <li>Build a "tier transition matrix" showing bronze→silver→gold flow</li>
-                <li>Calculate revenue by tier at different points in time</li>
-            </ul>
-        </div>
+        <p><strong>Expected Results:</strong></p>
+        <ul>
+            <li>~3,053 sellers total (current state)</li>
+            <li>~997 sellers with tier changes</li>
+            <li>You'll see progressions like: bronze → silver → gold → platinum</li>
+            <li><code>dbt_valid_from</code> timestamps match when YOU ran the snapshot commands</li>
+        </ul>
     </div>
 
     <div class="info-box">
