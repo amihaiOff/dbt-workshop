@@ -158,6 +158,16 @@
             border-radius: 8px;
         }
         
+        .concept-link {
+            color: #9b59b6;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .concept-link:hover {
+            text-decoration: underline;
+        }
+        
         /* Floating TOC Sidebar */
         .toc-sidebar {
             position: fixed;
@@ -359,33 +369,25 @@
                     <li class="toc-section">Setup</li>
                     <li><a href="#recap">📋 Quick Recap</a></li>
                     
+                    <li class="toc-section">Concepts</li>
+                    <li><a href="#macros">🎭 Macros in dbt</a></li>
+                    <li><a href="#hooks">🪝 Production Hooks</a></li>
+                    <li><a href="#tests">🧪 Understanding dbt Tests</a></li>
+                    
                     <li class="toc-section">Challenges</li>
                     <li class="toc-challenge"><a href="#challenge-1">🎯 Challenge 1: Seeds</a></li>
                     <li class="toc-challenge"><a href="#challenge-2">🎯 Challenge 2: Tier Macros</a></li>
-                    <li class="toc-challenge"><a href="#challenge-2b">🎯 Challenge 2b: Behavioral Mart</a></li>
                     <li class="toc-challenge"><a href="#challenge-3">🎯 Challenge 3: Hooks</a></li>
                     <li class="toc-challenge"><a href="#challenge-4">🎯 Challenge 4: Schema Tests</a></li>
                     <li class="toc-challenge"><a href="#challenge-5">🎯 Challenge 5: Unit Tests</a></li>
                     <li class="toc-challenge"><a href="#challenge-5b">🎯 Challenge 5b: Incremental Testing</a></li>
                     <li class="toc-challenge toc-optional"><a href="#challenge-6">🎯 Challenge 6: Freshness (Optional)</a></li>
                     
-                    <li class="toc-section">Concepts</li>
-                    <li><a href="#macros">🎭 Macros in dbt</a></li>
-                    <li><a href="#hooks">🪝 Production Hooks</a></li>
-                    <li><a href="#tests">🧪 Understanding dbt Tests</a></li>
-                    
                     <li class="toc-section">Wrap-up</li>
                     <li><a href="#session-complete">🎉 Session Complete!</a></li>
                 </ul>
             </div>
         </div>
-    </div>
-
-    <div class="info-box">
-        <h3>⏱️ Duration: 45-60 minutes</h3>
-        <p><strong>Prerequisites:</strong> Completed Session 1 & 2 models</p>
-        <p><strong>Goal:</strong> Add production-grade testing, monitoring, and enrichment</p>
-        <p><strong>Note:</strong> Shorter session to leave time for Feast production discussion</p>
     </div>
 
     <div id="recap" class="recap-box">
@@ -408,6 +410,106 @@
         <p><strong>⚠️ Use Wisely:</strong> The reset script will overwrite any custom work or bonus challenges you've completed. Make sure to save any extra code you want to keep before running it!</p>
     </div>
 
+    <!-- ==================== CONCEPTS SECTION ==================== -->
+
+    <h2 id="macros">🎭 Macros in dbt</h2>
+
+    <div class="info-box">
+        <h3>Understanding Macros - You've Already Used Them!</h3>
+
+        <p><strong>What are Macros?</strong></p>
+        <p>Macros are reusable pieces of SQL code, like functions in programming languages.</p>
+
+        <p><strong>You've Already Used These Macros from Session 1:</strong></p>
+        <ul>
+            <li><strong>dbt_utils.generate_surrogate_key():</strong> Created unique keys for customer landing</li>
+            <li><strong>dbt_utils.date_spine():</strong> Generated date ranges for daily features</li>
+            <li><strong>dbt_utils.pivot():</strong> Converted payment types to columns</li>
+            <li><strong>Built-in {{ ref() }} and {{ source() }}:</strong> These are macros too!</li>
+        </ul>
+
+        <p><strong>Now you'll create your own:</strong></p>
+        <pre>
+-- macros/get_payment_metrics.sql
+{% macro get_payment_metrics(days) %}
+    SUM(CASE
+        WHEN order_date >= date - {{ days }}
+        THEN payment_value
+    END) as payment_{{ days }}d
+{% endmacro %}</pre>
+
+        <p><strong>Using your macro:</strong></p>
+        <pre>
+SELECT
+    customer_id,
+    {{ get_payment_metrics(7) }},
+    {{ get_payment_metrics(30) }}
+FROM payments</pre>
+
+        <p><strong>Macros vs Functions vs Variables:</strong></p>
+        <ul>
+            <li><strong>Variables:</strong> Store values (numbers, strings, lists)</li>
+            <li><strong>Macros:</strong> Generate SQL code dynamically</li>
+            <li><strong>Functions:</strong> SQL functions run in the database</li>
+        </ul>
+    </div>
+
+    <h2 id="hooks">🪝 Production Hooks - Automating Data Quality Monitoring</h2>
+
+    <div class="info-box">
+        <h3>Understanding Hooks</h3>
+        <p><strong>What are Hooks?</strong> SQL statements that run automatically before or after your model builds.</p>
+
+        <p><strong>Two types of hooks:</strong></p>
+        <ul>
+            <li><strong>Pre-hooks:</strong> Run BEFORE your model SQL (setup, cleanup)</li>
+            <li><strong>Post-hooks:</strong> Run AFTER your model SQL (monitoring, indexing)</li>
+        </ul>
+
+        <p><strong>Why use hooks?</strong> Automate repetitive tasks like logging, monitoring, and optimization.</p>
+        
+        <p><strong>Example:</strong></p>
+        <pre>
+{{ config(
+    materialized='table',
+    post_hook=[
+        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_customer 
+         ON {{ this }} (customer_id)",
+        "ANALYZE {{ this }}"
+    ]
+) }}</pre>
+    </div>
+
+    <h2 id="tests">🧪 Understanding dbt Tests</h2>
+
+    <div class="info-box">
+        <h3>Testing Progression: Simple to Advanced</h3>
+
+        <h4>1. Schema Tests (Start Here)</h4>
+        <p>Pre-built tests applied via YAML configuration - the foundation of data quality:</p>
+        <ul>
+            <li><code>unique</code> - Ensures column has no duplicates</li>
+            <li><code>not_null</code> - Ensures column has no nulls</li>
+            <li><code>accepted_values</code> - Validates against a list</li>
+            <li><code>relationships</code> - Checks foreign key integrity</li>
+        </ul>
+
+        <h4>2. Unit Tests (New in dbt 1.8+)</h4>
+        <p>Test model logic with mock inputs and expected outputs - like unit tests in programming.</p>
+
+        <h4>3. Custom Tests (Advanced)</h4>
+        <p>Custom SQL queries in the <code>tests/</code> folder that return rows when they fail - for complex business logic validation.</p>
+
+        <h4>Running Tests:</h4>
+        <pre>
+dbt test                           # Run all tests
+dbt test --select model_name       # Test specific model
+dbt test --select tag:critical     # Run tagged tests
+dbt test --store-failures          # Save failures for debugging</pre>
+    </div>
+
+    <!-- ==================== CHALLENGES SECTION ==================== -->
+
     <!-- Challenge 1: Seeds for Reference Data -->
     <div id="challenge-1" class="challenge-box">
         <h2>🎯 Challenge 1: Seeds for Business Logic</h2>
@@ -426,7 +528,7 @@
         </div>
 
         <h3>Step 1: Create the seed file</h3>
-        <p>First, you'll need a seed file with Brazilian city geographic data. Edit <code>seeds/brazil_cities.csv</code> with the following content:</p>
+        <p>First, you'll need a seed file with Brazilian city geographic data. Create <code>seeds/brazil_cities.csv</code> with the following content:</p>
 
         <pre>
 city,state,region,population_tier,economic_zone,logistics_hub
@@ -479,7 +581,8 @@ WITH latest_features_ranked AS (
         customer_id,
         date,
         total_payment_value as customer_revenue,
-        total_orders,
+        orders_7d,
+        orders_14d as total_orders,
         days_since_landing,
         landing_date,
         ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY date DESC) as rn
@@ -492,6 +595,7 @@ latest_features AS (
         customer_id,
         date,
         customer_revenue,
+        orders_7d,
         total_orders,
         days_since_landing,
         landing_date
@@ -587,52 +691,12 @@ FROM mart_customer_features_enriched;</pre>
         </div>
     </div>
 
-    <h2 id="macros">🎭 Macros in dbt</h2>
-
-    <div class="info-box">
-        <h3>Understanding Macros - You've Already Used Them!</h3>
-
-        <p><strong>What are Macros?</strong></p>
-        <p>Macros are reusable pieces of SQL code, like functions in programming languages.</p>
-
-        <p><strong>You've Already Used These Macros from Session 1:</strong></p>
-        <ul>
-            <li><strong>dbt_utils.generate_surrogate_key():</strong> Created unique keys for customer landing</li>
-            <li><strong>dbt_utils.date_spine():</strong> Generated date ranges for daily features</li>
-            <li><strong>dbt_utils.pivot():</strong> Converted payment types to columns</li>
-            <li><strong>Built-in {{ ref() }} and {{ source() }}:</strong> These are macros too!</li>
-        </ul>
-
-        <p><strong>Now you'll create your own:</strong></p>
-        <pre>
--- macros/get_payment_metrics.sql
-{% macro get_payment_metrics(days) %}
-    SUM(CASE
-        WHEN order_date >= date - {{ days }}
-        THEN payment_value
-    END) as payment_{{ days }}d
-{% endmacro %}</pre>
-
-        <p><strong>Using your macro:</strong></p>
-        <pre>
-SELECT
-    customer_id,
-    {{ get_payment_metrics(7) }},
-    {{ get_payment_metrics(30) }}
-FROM payments</pre>
-
-        <p><strong>Macros vs Functions vs Variables:</strong></p>
-        <ul>
-            <li><strong>Variables:</strong> Store values (numbers, strings, lists)</li>
-            <li><strong>Macros:</strong> Generate SQL code dynamically</li>
-            <li><strong>Functions:</strong> SQL functions run in the database</li>
-        </ul>
-    </div>
-
     <!-- Challenge 2: Macros - Tier Classification -->
     <div id="challenge-2" class="challenge-box">
         <h2>🎯 Challenge 2: Create Reusable Tier Classification Macro</h2>
         <p>Build a macro to standardize tier classification logic across different entities - turning the seller tier logic from Session 2 into reusable code.</p>
+
+        <p><strong>Related concepts:</strong> <a href="#macros" class="concept-link">Macros in dbt</a></p>
 
         <div class="info-box">
             <h3>🎯 The DRY Principle for Business Logic</h3>
@@ -880,408 +944,12 @@ ORDER BY
         </div>
     </div>
 
-    <!-- Challenge 2b: Second Mart Using Macros -->
-    <div id="challenge-2b" class="challenge-box">
-        <h2>🎯 Challenge 2b: Complete Behavioral Features Mart (Using Your Macro!)</h2>
-        <p>Now let's put your new <code>classify_tier</code> macro to work! Create a second mart that tracks customer behavior patterns.</p>
-
-        <div class="info-box">
-            <h3>🎯 Why a Second Mart?</h3>
-            <p><strong>The Feature Store Pattern:</strong> In production ML systems, features are organized into multiple focused marts that can be joined together:</p>
-
-            <ul>
-                <li><strong>Mart 1 (mart_customer_features_enriched):</strong> Transaction volume + Geographic context</li>
-                <li><strong>Mart 2 (mart_customer_behavior_daily):</strong> Behavioral patterns + Product preferences</li>
-            </ul>
-
-            <p><strong>Why separate marts?</strong></p>
-            <ul>
-                <li><strong>Focused logic:</strong> Each mart has a clear purpose</li>
-                <li><strong>Independent updates:</strong> Update behavior features without rebuilding geography features</li>
-                <li><strong>Flexible joins:</strong> ML models can select which marts they need</li>
-                <li><strong>Same key:</strong> Both use <code>customer_id + date</code> for easy joining</li>
-            </ul>
-
-            <p><strong>This mirrors real architectures</strong> at Netflix, Uber, and Airbnb!</p>
-        </div>
-
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Edit <code>models/mart/mart_customer_behavior_daily.sql</code></li>
-            <li>Use the same key as Mart 1: <code>customer_id + feature_date</code></li>
-            <li>Calculate behavioral features:
-                <ul>
-                    <li><strong>Product diversity:</strong> Cumulative and rolling unique products</li>
-                    <li><strong>Seller diversity:</strong> How many sellers they've purchased from</li>
-                    <li><strong>Price preferences:</strong> Average item prices, min/max, price tier</li>
-                    <li><strong>Payment behavior:</strong> Primary payment method, credit card usage rate</li>
-                    <li><strong>Engagement patterns:</strong> Order frequency in last 7/30 days</li>
-                    <li><strong>Engagement tier:</strong> Use your <code>classify_tier</code> macro!</li>
-                </ul>
-            </li>
-            <li>Test joining both marts together</li>
-        </ol>
-
-        <div class="info-box">
-            <h3>📊 Feature Categories for Mart 2</h3>
-
-            <table>
-                <tr>
-                    <th>Category</th>
-                    <th>Features</th>
-                    <th>ML Use Case</th>
-                </tr>
-                <tr>
-                    <td><strong>Product Diversity</strong></td>
-                    <td>cumulative_unique_products, unique_products_30d</td>
-                    <td>Product recommendations, cross-sell</td>
-                </tr>
-                <tr>
-                    <td><strong>Seller Diversity</strong></td>
-                    <td>cumulative_unique_sellers, unique_sellers_30d</td>
-                    <td>Marketplace engagement, seller recommendations</td>
-                </tr>
-                <tr>
-                    <td><strong>Price Preferences</strong></td>
-                    <td>avg_item_price, price_tier_preference</td>
-                    <td>Dynamic pricing, product matching</td>
-                </tr>
-                <tr>
-                    <td><strong>Payment Behavior</strong></td>
-                    <td>primary_payment_type, credit_card_usage_rate</td>
-                    <td>Fraud detection, payment optimization</td>
-                </tr>
-                <tr>
-                    <td><strong>Engagement</strong></td>
-                    <td>order_days_30d, engagement_tier</td>
-                    <td>Churn prediction, retention campaigns</td>
-                </tr>
-            </table>
-        </div>
-
-        <button class="solution-button" onclick="toggleSolution('solution2b')">Show Solution</button>
-        <div id="solution2b" class="solution">
-            <h4>Create models/mart/mart_customer_behavior_daily.sql</h4>
-            <pre>
-{{ config(materialized='table') }}
-
--- Daily behavioral features for customers
--- Tracks product diversity, seller preferences, payment patterns, and engagement
--- Key: customer_id + date (joinable with mart_customer_features_enriched)
-
-WITH customer_dates AS (
-    -- Use same date spine as features mart for consistency
-    SELECT DISTINCT
-        customer_id,
-        date as feature_date
-    FROM {{ ref('int_customer_daily_features') }}
-),
-
-order_details AS (
-    -- Get all order details with products, sellers, and payments
-    SELECT
-        o.customer_id,
-        DATE(o.order_purchase_timestamp) as order_date,
-        oi.product_id,
-        oi.seller_id,
-        oi.price,
-        p.payment_type,
-        p.payment_value
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_items') }} oi
-        ON o.order_id = oi.order_id
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-),
-
-cumulative_diversity AS (
-    -- Calculate cumulative product and seller diversity up to each date
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Product diversity metrics
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.product_id
-        END) as cumulative_unique_products,
-
-        -- Seller diversity metrics
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.seller_id
-        END) as cumulative_unique_sellers,
-
-        -- Price preferences (cumulative)
-        AVG(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as avg_item_price_all_time,
-
-        MIN(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as min_item_price,
-
-        MAX(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as max_item_price
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-),
-
-rolling_metrics AS (
-    -- Calculate rolling window metrics for recent behavior
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Recent product diversity (last 30 days)
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.product_id
-        END) as unique_products_30d,
-
-        -- Recent seller diversity (last 30 days)
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.seller_id
-        END) as unique_sellers_30d,
-
-        -- Recent average price
-        AVG(CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.price
-        END) as avg_item_price_30d,
-
-        -- Count orders in different windows for engagement
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '7 days'
-            THEN od.order_date
-        END) as order_days_7d,
-
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.order_date
-        END) as order_days_30d
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-),
-
-payment_preferences AS (
-    -- Calculate payment method preferences
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Most used payment type
-        MODE() WITHIN GROUP (ORDER BY
-            CASE WHEN od.order_date <= cd.feature_date
-            THEN od.payment_type END
-        ) as primary_payment_type,
-
-        -- Payment method diversity
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.payment_type
-        END) as payment_methods_used,
-
-        -- Credit card usage rate
-        SUM(CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.payment_type = 'credit_card'
-            THEN od.payment_value
-            ELSE 0
-        END) / NULLIF(SUM(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.payment_value
-        END), 0) as credit_card_rate
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-)
-
-SELECT
-    cd.customer_id,
-    cd.feature_date,
-
-    -- Product diversity features
-    COALESCE(cum.cumulative_unique_products, 0) as cumulative_unique_products,
-    COALESCE(rm.unique_products_30d, 0) as unique_products_30d,
-
-    -- Seller diversity features
-    COALESCE(cum.cumulative_unique_sellers, 0) as cumulative_unique_sellers,
-    COALESCE(rm.unique_sellers_30d, 0) as unique_sellers_30d,
-
-    -- Price preference features
-    ROUND(COALESCE(cum.avg_item_price_all_time, 0)::NUMERIC, 2) as avg_item_price_all_time,
-    ROUND(COALESCE(rm.avg_item_price_30d, 0)::NUMERIC, 2) as avg_item_price_30d,
-    ROUND(COALESCE(cum.min_item_price, 0)::NUMERIC, 2) as min_item_price,
-    ROUND(COALESCE(cum.max_item_price, 0)::NUMERIC, 2) as max_item_price,
-
-    -- Price tier preference (derived feature)
-    CASE
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 200 THEN 'premium'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 100 THEN 'mid_tier'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 50 THEN 'value'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) > 0 THEN 'budget'
-        ELSE 'no_purchases'
-    END as price_tier_preference,
-
-    -- Payment behavior features
-    COALESCE(pp.primary_payment_type, 'unknown') as primary_payment_type,
-    COALESCE(pp.payment_methods_used, 0) as payment_methods_used,
-    ROUND(COALESCE(pp.credit_card_rate, 0)::NUMERIC, 2) as credit_card_usage_rate,
-
-    -- Engagement features
-    COALESCE(rm.order_days_7d, 0) as order_days_7d,
-    COALESCE(rm.order_days_30d, 0) as order_days_30d,
-
-    -- Engagement tier using the classify_tier macro from Challenge 2!
-    {{ classify_tier('COALESCE(rm.order_days_30d, 0)', 'volume') }} as engagement_tier,
-
-    -- Diversity score (combined metric)
-    CASE
-        WHEN COALESCE(cum.cumulative_unique_products, 0) >= 10
-         AND COALESCE(cum.cumulative_unique_sellers, 0) >= 5 THEN 'high_diversity'
-        WHEN COALESCE(cum.cumulative_unique_products, 0) >= 5
-         AND COALESCE(cum.cumulative_unique_sellers, 0) >= 3 THEN 'medium_diversity'
-        WHEN COALESCE(cum.cumulative_unique_products, 0) > 0 THEN 'low_diversity'
-        ELSE 'no_diversity'
-    END as diversity_profile
-
-FROM customer_dates cd
-LEFT JOIN cumulative_diversity cum
-    ON cd.customer_id = cum.customer_id
-    AND cd.feature_date = cum.feature_date
-LEFT JOIN rolling_metrics rm
-    ON cd.customer_id = rm.customer_id
-    AND cd.feature_date = rm.feature_date
-LEFT JOIN payment_preferences pp
-    ON cd.customer_id = pp.customer_id
-    AND cd.feature_date = pp.feature_date
-ORDER BY cd.customer_id, cd.feature_date</pre>
-
-            <h4>Run and test the mart</h4>
-            <pre>
-# Build the behavioral mart
-dbt run --select mart_customer_behavior_daily
-
-# Explore the features
-SELECT
-    engagement_tier,
-    diversity_profile,
-    price_tier_preference,
-    COUNT(*) as customer_days,
-    AVG(cumulative_unique_products) as avg_products,
-    AVG(cumulative_unique_sellers) as avg_sellers,
-    AVG(avg_item_price_all_time) as avg_price
-FROM mart_customer_behavior_daily
-GROUP BY engagement_tier, diversity_profile, price_tier_preference
-ORDER BY customer_days DESC
-LIMIT 20;</pre>
-
-            <h4>Test joining both marts (Feature Store pattern!)</h4>
-            <pre>
--- Join both marts for complete feature set
-SELECT
-    f.customer_id,
-    f.feature_date,
-
-    -- Features from Mart 1 (geography + volume)
-    f.customer_revenue,
-    f.total_orders,
-    f.city_tier,
-    f.economic_zone,
-    f.business_priority_score,
-
-    -- Features from Mart 2 (behavior + preferences)
-    b.cumulative_unique_products,
-    b.price_tier_preference,
-    b.primary_payment_type,
-    b.engagement_tier,
-    b.diversity_profile
-
-FROM mart_customer_features_enriched f
-INNER JOIN mart_customer_behavior_daily b
-    ON f.customer_id = b.customer_id
-    AND f.feature_date = b.feature_date
-WHERE f.feature_date = (SELECT MAX(feature_date) FROM mart_customer_features_enriched)
-LIMIT 10;
-
--- This is exactly how a feature store would serve features to an ML model!</pre>
-
-            <div class="info-box">
-                <h3>✨ What You've Built:</h3>
-                <ul>
-                    <li><strong>Two Complementary Marts:</strong> Transaction metrics + Behavioral patterns</li>
-                    <li><strong>Macro Reuse:</strong> Your classify_tier macro works across different contexts!</li>
-                    <li><strong>Same Key Structure:</strong> Both marts use customer_id + date for easy joins</li>
-                    <li><strong>Feature Store Ready:</strong> This pattern scales to production ML systems</li>
-                    <li><strong>Rich Feature Set:</strong> 25+ features spanning geography, behavior, and engagement</li>
-                </ul>
-            </div>
-
-            <div class="warning-box">
-                <h4>🚀 Production Note: Why This Matters</h4>
-                <p>In production feature stores like Feast, Tecton, or Databricks Feature Store:</p>
-                <ul>
-                    <li>Each mart becomes a <strong>Feature View</strong></li>
-                    <li>The shared key (customer_id + date) is the <strong>Entity</strong></li>
-                    <li>ML models declare which feature views they need</li>
-                    <li>The feature store handles the joins automatically</li>
-                    <li>Point-in-time correctness is guaranteed</li>
-                </ul>
-                <p><strong>You just built the foundation!</strong> Later you can connect this to Feast for real-time serving.</p>
-            </div>
-        </div>
-
-        <div class="optional-challenge">
-            <h3>⭐ Optional Challenge: Feature Mart Dashboard</h3>
-            <p>Create a summary view that compares customers across both marts:</p>
-            <ul>
-                <li>Identify high-revenue customers with low engagement</li>
-                <li>Find budget shoppers with high product diversity</li>
-                <li>Segment by geography + behavior for marketing campaigns</li>
-                <li>Create a composite "customer value score" combining both marts</li>
-            </ul>
-        </div>
-    </div>
-
-    <h2 id="hooks">🪝 Production Hooks - Automating Data Quality Monitoring</h2>
-
-    <div class="info-box">
-        <h3>Understanding Hooks</h3>
-        <p><strong>What are Hooks?</strong> SQL statements that run automatically before or after your model builds.</p>
-
-        <p><strong>Two types of hooks:</strong></p>
-        <ul>
-            <li><strong>Pre-hooks:</strong> Run BEFORE your model SQL (setup, cleanup)</li>
-            <li><strong>Post-hooks:</strong> Run AFTER your model SQL (monitoring, indexing)</li>
-        </ul>
-
-        <p><strong>Why use hooks?</strong> Automate repetitive tasks like logging, monitoring, and optimization.</p>
-    </div>
-
     <!-- Challenge 3: Production Hooks -->
     <div id="challenge-3" class="challenge-box">
         <h2>🎯 Challenge 3: Add Data Quality Monitoring Hook</h2>
         <p>Create a simple post-hook that automatically counts rows and null order_ids every time your model runs.</p>
+
+        <p><strong>Related concepts:</strong> <a href="#hooks" class="concept-link">Production Hooks</a></p>
 
         <div class="info-box">
             <h3>📊 What You'll Build</h3>
@@ -1419,38 +1087,12 @@ SELECT * FROM dbt_monitoring.quality_log ORDER BY checked_at DESC LIMIT 5;</pre>
         </div>
     </div>
 
-    <h2 id="tests">🧪 Understanding dbt Tests</h2>
-
-    <div class="info-box">
-        <h3>Testing Progression: Simple to Advanced</h3>
-
-        <h4>1. Schema Tests (Start Here)</h4>
-        <p>Pre-built tests applied via YAML configuration - the foundation of data quality:</p>
-        <ul>
-            <li><code>unique</code> - Ensures column has no duplicates</li>
-            <li><code>not_null</code> - Ensures column has no nulls</li>
-            <li><code>accepted_values</code> - Validates against a list</li>
-            <li><code>relationships</code> - Checks foreign key integrity</li>
-        </ul>
-
-        <h4>2. Unit Tests (New in dbt 1.8+)</h4>
-        <p>Test model logic with mock inputs and expected outputs - like unit tests in programming.</p>
-
-        <h4>3. Custom Tests (Advanced)</h4>
-        <p>Custom SQL queries in the <code>tests/</code> folder that return rows when they fail - for complex business logic validation.</p>
-
-        <h4>Running Tests:</h4>
-        <pre>
-dbt test                           # Run all tests
-dbt test --select model_name       # Test specific model
-dbt test --select tag:critical     # Run tagged tests
-dbt test --store-failures          # Save failures for debugging</pre>
-    </div>
-
     <!-- Challenge 4: Schema Tests -->
     <div id="challenge-4" class="challenge-box">
         <h2>🎯 Challenge 4: Schema Tests Foundation</h2>
         <p>Start with schema tests - the foundation of data quality validation.</p>
+
+        <p><strong>Related concepts:</strong> <a href="#tests" class="concept-link">Understanding dbt Tests</a></p>
 
         <h3>Requirements:</h3>
         <ol>
@@ -1647,6 +1289,8 @@ dbt test --select stg_orders</pre>
     <div id="challenge-5" class="challenge-box">
         <h2>🎯 Challenge 5: Unit Tests for Model Logic</h2>
         <p>Create unit tests to validate your model transformation logic with mock data.</p>
+
+        <p><strong>Related concepts:</strong> <a href="#tests" class="concept-link">Understanding dbt Tests</a></p>
         
         <div class="info-box">
             <h3>🔬 Unit Tests Explained</h3>
@@ -1756,6 +1400,8 @@ dbt test --select test_stg_orders_filtering_and_dates --verbose</pre>
     <div id="challenge-5b" class="challenge-box">
         <h2>🎯 Challenge 5b: Test Incremental Model Behavior</h2>
         <p>Verify that your incremental model <code>int_customer_daily_features_inc</code> correctly processes only new data during incremental runs.</p>
+
+        <p><strong>Related concepts:</strong> <a href="#tests" class="concept-link">Understanding dbt Tests</a></p>
 
         <div class="info-box">
             <h3>🔍 The Testing Challenge</h3>
@@ -1954,13 +1600,11 @@ ORDER BY date;
     </div>
 
     <!-- Challenge 6: Freshness Testing (OPTIONAL) -->
-    <details>
-        <summary style="cursor: pointer; padding: 15px; background-color: #ffeaa7; border: 2px dashed #fdcb6e; border-radius: 8px; margin: 30px 0; font-size: 18px; font-weight: bold;">
-            📦 Challenge 6 (Optional): Data Freshness Monitoring - Click to Expand
-        </summary>
-    <div id="challenge-6" class="challenge-box" style="margin-top: 15px;">
+    <div id="challenge-6" class="challenge-box">
         <h2>🎯 Challenge 6 (Optional): Data Freshness Monitoring</h2>
         <p>Set up freshness tests to ensure your source data is up-to-date for production ML pipelines.</p>
+
+        <p><strong>Related concepts:</strong> <a href="#tests" class="concept-link">Understanding dbt Tests</a></p>
 
         <div class="info-box">
             <h3>⚠️ Why This Challenge is Optional</h3>
@@ -2207,8 +1851,8 @@ if __name__ == "__main__":
             </div>
         </div>
     </div>
-    </details>
 
+    <!-- ==================== WRAP-UP SECTION ==================== -->
 
     <!-- Summary -->
     <div id="session-complete" class="info-box">

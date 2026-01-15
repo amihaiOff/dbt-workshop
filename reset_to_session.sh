@@ -78,10 +78,14 @@ echo "Resetting to: $SESSION"
 echo "======================================"
 echo ""
 
-# Restore all placeholder files from git (keeps future session files as placeholders)
-echo "Step 1: Restoring placeholder files from git..."
-git restore models/staging/*.sql models/intermediate/*.sql models/mart/*.sql snapshots/*.yml macros/*.sql seeds/*.csv models/staging/schema.yml 2>/dev/null || true
-# Note: This preserves placeholder files for future sessions
+# Clean up existing model files (but preserve schema.yml - we'll recreate it)
+echo "Step 1: Cleaning up existing dbt model files..."
+rm -f models/staging/stg_*.sql
+rm -f models/intermediate/int_*.sql
+rm -f models/mart/mart_*.sql
+rm -f snapshots/*.sql
+rm -f macros/calculate_*.sql
+# Note: schema.yml will be recreated with source definitions
 
 # Clean up dbt-created tables in database (keep source tables)
 echo ""
@@ -110,43 +114,6 @@ END $$;
 EOSQL
 
 echo "  ✓ Cleaned up dbt-created tables (kept source tables)"
-
-# Create late-arriving orders source table for Session 2 Challenge 4
-echo ""
-echo "Step 2.5: Creating late-arriving orders source table..."
-$DOCKER_COMPOSE exec -T postgres psql -U dbt_user -d dbt_workshop -q << 'EOSQL'
-DROP TABLE IF EXISTS olist_data.olist_late_orders;
-
-CREATE TABLE olist_data.olist_late_orders AS
-SELECT
-    o.order_id,
-    o.customer_id,
-    o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    -- Simulate late arrivals using deterministic hash-based delays
-    -- This ensures consistent results across resets
-    CASE
-        -- Orders where hash mod 10 = 0: arrive 7-14 days late (10%)
-        WHEN MOD(ABS(HASHTEXT(o.order_id)), 10) = 0 THEN
-            o.order_purchase_timestamp::timestamp + INTERVAL '7 days' +
-            (MOD(ABS(HASHTEXT(o.order_id || 'salt1')), 7) || ' days')::INTERVAL
-        -- Orders where hash mod 20 = 1: arrive 14-30 days late (5%)
-        WHEN MOD(ABS(HASHTEXT(o.order_id)), 20) = 1 THEN
-            o.order_purchase_timestamp::timestamp + INTERVAL '14 days' +
-            (MOD(ABS(HASHTEXT(o.order_id || 'salt2')), 16) || ' days')::INTERVAL
-        -- Rest arrive within 1-2 days (normal)
-        ELSE
-            o.order_purchase_timestamp::timestamp + INTERVAL '1 day' +
-            (MOD(ABS(HASHTEXT(o.order_id || 'salt3')), 24) || ' hours')::INTERVAL
-    END as order_approved_at,
-    o.order_status
-FROM olist_data.olist_orders o
-WHERE o.order_status NOT IN ('canceled', 'unavailable')
-  AND o.order_purchase_timestamp IS NOT NULL
-  AND o.order_purchase_timestamp::timestamp <= '2018-03-31'::timestamp
-LIMIT 5000;
-EOSQL
-
-echo "  ✓ Created olist_late_orders with simulated late arrivals"
 
 # Create models based on session
 case $SESSION in
@@ -178,17 +145,6 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
-      - name: olist_late_orders
-        description: Orders with simulated late arrival times for testing ingestion time tracking
-        columns:
-          - name: order_id
-            description: Order identifier
-          - name: customer_id
-            description: Customer identifier
-          - name: order_purchase_timestamp
-            description: When the order was actually purchased (transaction time)
-          - name: order_approved_at
-            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # Staging models
@@ -379,17 +335,6 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
-      - name: olist_late_orders
-        description: Orders with simulated late arrival times for testing ingestion time tracking
-        columns:
-          - name: order_id
-            description: Order identifier
-          - name: customer_id
-            description: Customer identifier
-          - name: order_purchase_timestamp
-            description: When the order was actually purchased (transaction time)
-          - name: order_approved_at
-            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # First create all Session 1 models (same as case 1, but without running dbt yet)
@@ -565,41 +510,11 @@ WHERE oi.order_id IS NOT NULL
   AND o.order_purchase_timestamp IS NOT NULL
 EOF
 
-        cat > models/staging/stg_late_orders.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Staging model for late-arriving orders
--- Joins orders with payments to get transaction amounts
--- Includes both transaction time and ingestion time for point-in-time correctness
-
-SELECT
-    lo.order_id,
-    lo.customer_id,
-    lo.order_purchase_timestamp,
-    DATE(lo.order_purchase_timestamp) as transaction_date,
-    lo.order_approved_at as ingestion_timestamp,
-    DATE(lo.order_approved_at) as ingestion_date,
-    p.payment_value::DECIMAL(10,2) as payment_value,
-
-    -- Calculate how late this order arrived (for analysis)
-    (lo.order_approved_at - lo.order_purchase_timestamp) as arrival_delay
-
-FROM {{ source('olist_data', 'olist_late_orders') }} lo
-INNER JOIN {{ source('olist_data', 'olist_order_payments') }} p
-    ON lo.order_id = p.order_id
-WHERE lo.order_id IS NOT NULL
-  AND lo.customer_id IS NOT NULL
-  AND p.payment_value > 0
-EOF
-
         cat > models/intermediate/int_seller_performance.sql << 'EOF'
 {{ config(materialized='table') }}
 
 -- Use variable to control analysis date for testing
 {% set snapshot_date = var('snapshot_date', '2018-10-17') %}
-
--- Log which date we're using
-{{ log("📅 Analyzing seller performance up to: " ~ snapshot_date, info=True) }}
 
 WITH seller_metrics AS (
     SELECT
@@ -640,74 +555,90 @@ SELECT
 FROM seller_metrics
 EOF
 
-        cat > models/intermediate/int_customer_payment_features.sql << 'EOF'
-{{ config(materialized='table') }}
+        cat > snapshots/snap_seller_tier.sql << 'EOF'
+{% snapshot snap_seller_tier %}
+    {{
+        config(
+          target_schema='olist_data',
+          strategy='timestamp',
+          unique_key='seller_id',
+          updated_at='updated_at',
+        )
+    }}
 
--- Calculate daily payment features for customers using ingestion time tracking
--- This ensures point-in-time correctness: only count payments that had arrived by the feature date
+    SELECT * FROM {{ ref('int_seller_performance') }}
 
-WITH feature_dates AS (
-    -- Generate all dates we want to calculate features for
-    {{ dbt_utils.date_spine(
-        datepart="day",
-        start_date="'2018-01-01'::date",
-        end_date="'2018-03-31'::date"
-    ) }}
-),
-
-all_customers AS (
-    -- Get all unique customers
-    SELECT DISTINCT customer_id
-    FROM {{ ref('stg_late_orders') }}
-),
-
-customer_feature_dates AS (
-    -- For each customer, generate all feature dates
-    SELECT
-        ac.customer_id,
-        fd.date_day as feature_date
-    FROM all_customers ac
-    CROSS JOIN feature_dates fd
-),
-
-point_in_time_payments AS (
-    -- For each feature date, only include payments that:
-    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
-    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
-    SELECT
-        cfd.customer_id,
-        cfd.feature_date,
-        SUM(lo.payment_value) as total_payment_value,
-        COUNT(DISTINCT lo.order_id) as total_orders
-    FROM customer_feature_dates cfd
-    LEFT JOIN {{ ref('stg_late_orders') }} lo
-        ON cfd.customer_id = lo.customer_id
-        -- Transaction must have happened by feature date
-        AND lo.transaction_date <= cfd.feature_date
-        -- Data must have arrived in our system by feature date (KEY LOGIC!)
-        AND lo.ingestion_date <= cfd.feature_date
-    GROUP BY 1, 2
-)
-
-SELECT
-    customer_id,
-    feature_date,
-    COALESCE(total_payment_value, 0) as total_payment_value,
-    COALESCE(total_orders, 0) as total_orders
-FROM point_in_time_payments
-ORDER BY customer_id, feature_date
+{% endsnapshot %}
 EOF
 
-        cat > snapshots/snapshots.yml << 'EOF'
-version: 2
+        # Challenge 4: Late-arriving data models
+        cat > models/staging/stg_orders_with_ingestion.sql << 'EOF'
+{{ config(
+    materialized='incremental',
+    unique_key='order_id',
+    incremental_strategy='merge'
+) }}
 
-snapshots:
-  - name: snap_seller_tier
-    relation: ref('int_seller_performance')
-    config:
-      unique_key: seller_id
-      strategy: timestamp
-      updated_at: updated_at
+SELECT
+    order_id,
+    customer_id,
+    order_status,
+    order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    DATE(order_purchase_timestamp::timestamp) as order_date,
+    
+    -- INGESTION TIME STRATEGY: Track when we received this data
+    CURRENT_TIMESTAMP as ingestion_time,
+    
+    -- Simulate late arrival: some orders arrive 1-3 days after order_date
+    CASE 
+        WHEN order_id IN (
+            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
+            WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
+        ) THEN order_purchase_timestamp::timestamp + INTERVAL '2 days'
+        ELSE order_purchase_timestamp::timestamp + INTERVAL '1 hour'
+    END as simulated_arrival_time
+
+FROM {{ source('olist_data', 'olist_orders') }}
+
+WHERE order_status != 'unavailable'
+  AND order_purchase_timestamp IS NOT NULL
+  
+  {% if is_incremental() %}
+    -- Only process recently arrived data
+    AND order_purchase_timestamp::timestamp > (
+        SELECT MAX(order_purchase_timestamp)
+        FROM {{ this }}
+    )
+  {% endif %}
+EOF
+
+        cat > models/intermediate/int_payment_features_ingestion.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Point-in-time correct features using ingestion time
+WITH prediction_dates AS (
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="'2017-01-01'::date",
+        end_date="'2017-03-31'::date"
+    ) }}
+)
+
+SELECT 
+    pd.date_day as date,
+    o.customer_id,
+    COUNT(DISTINCT o.order_id) as orders_count,
+    SUM(p.payment_value) as total_payments,
+    'ingestion_time_tracking' as method
+FROM prediction_dates pd
+CROSS JOIN {{ ref('stg_orders_with_ingestion') }} o
+INNER JOIN {{ ref('stg_order_payments') }} p
+    ON o.order_id = p.order_id
+WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  -- CRITICAL: Only use data we "knew" at prediction time
+  AND o.simulated_arrival_time <= pd.date_day
+  AND DATE(o.order_purchase_timestamp) <= pd.date_day
+GROUP BY 1, 2
 EOF
 
         echo "Step 4: Running dbt models..."
@@ -730,6 +661,8 @@ EOF
         echo "  - stg_order_items_snapshot"
         echo "  - int_seller_performance"
         echo "  - snap_seller_tier (with 4 snapshot iterations)"
+        echo "  - stg_orders_with_ingestion (ingestion time tracking)"
+        echo "  - int_payment_features_ingestion (point-in-time features)"
         ;;
 
     3)
@@ -760,17 +693,6 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
-      - name: olist_late_orders
-        description: Orders with simulated late arrival times for testing ingestion time tracking
-        columns:
-          - name: order_id
-            description: Order identifier
-          - name: customer_id
-            description: Customer identifier
-          - name: order_purchase_timestamp
-            description: When the order was actually purchased (transaction time)
-          - name: order_approved_at
-            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # Create all Session 1 staging models
@@ -971,41 +893,11 @@ WHERE oi.order_id IS NOT NULL
   AND o.order_purchase_timestamp IS NOT NULL
 EOF
 
-        cat > models/staging/stg_late_orders.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Staging model for late-arriving orders
--- Joins orders with payments to get transaction amounts
--- Includes both transaction time and ingestion time for point-in-time correctness
-
-SELECT
-    lo.order_id,
-    lo.customer_id,
-    lo.order_purchase_timestamp,
-    DATE(lo.order_purchase_timestamp) as transaction_date,
-    lo.order_approved_at as ingestion_timestamp,
-    DATE(lo.order_approved_at) as ingestion_date,
-    p.payment_value::DECIMAL(10,2) as payment_value,
-
-    -- Calculate how late this order arrived (for analysis)
-    (lo.order_approved_at - lo.order_purchase_timestamp) as arrival_delay
-
-FROM {{ source('olist_data', 'olist_late_orders') }} lo
-INNER JOIN {{ source('olist_data', 'olist_order_payments') }} p
-    ON lo.order_id = p.order_id
-WHERE lo.order_id IS NOT NULL
-  AND lo.customer_id IS NOT NULL
-  AND p.payment_value > 0
-EOF
-
         cat > models/intermediate/int_seller_performance.sql << 'EOF'
 {{ config(materialized='table') }}
 
 -- Use variable to control analysis date for testing
 {% set snapshot_date = var('snapshot_date', '2018-10-17') %}
-
--- Log which date we're using
-{{ log("📅 Analyzing seller performance up to: " ~ snapshot_date, info=True) }}
 
 WITH seller_metrics AS (
     SELECT
@@ -1036,64 +928,6 @@ SELECT
     last_sale_date,
     updated_at
 FROM seller_metrics
-EOF
-
-        cat > models/intermediate/int_customer_payment_features.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Calculate daily payment features for customers using ingestion time tracking
--- This ensures point-in-time correctness: only count payments that had arrived by the feature date
-
-WITH feature_dates AS (
-    -- Generate all dates we want to calculate features for
-    {{ dbt_utils.date_spine(
-        datepart="day",
-        start_date="'2018-01-01'::date",
-        end_date="'2018-03-31'::date"
-    ) }}
-),
-
-all_customers AS (
-    -- Get all unique customers
-    SELECT DISTINCT customer_id
-    FROM {{ ref('stg_late_orders') }}
-),
-
-customer_feature_dates AS (
-    -- For each customer, generate all feature dates
-    SELECT
-        ac.customer_id,
-        fd.date_day as feature_date
-    FROM all_customers ac
-    CROSS JOIN feature_dates fd
-),
-
-point_in_time_payments AS (
-    -- For each feature date, only include payments that:
-    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
-    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
-    SELECT
-        cfd.customer_id,
-        cfd.feature_date,
-        SUM(lo.payment_value) as total_payment_value,
-        COUNT(DISTINCT lo.order_id) as total_orders
-    FROM customer_feature_dates cfd
-    LEFT JOIN {{ ref('stg_late_orders') }} lo
-        ON cfd.customer_id = lo.customer_id
-        -- Transaction must have happened by feature date
-        AND lo.transaction_date <= cfd.feature_date
-        -- Data must have arrived in our system by feature date (KEY LOGIC!)
-        AND lo.ingestion_date <= cfd.feature_date
-    GROUP BY 1, 2
-)
-
-SELECT
-    customer_id,
-    feature_date,
-    COALESCE(total_payment_value, 0) as total_payment_value,
-    COALESCE(total_orders, 0) as total_orders
-FROM point_in_time_payments
-ORDER BY customer_id, feature_date
 EOF
 
         # Session 3: Customer Tiers Model
@@ -1142,16 +976,90 @@ SELECT
 FROM customer_metrics
 EOF
 
-        cat > snapshots/snapshots.yml << 'EOF'
-version: 2
+        cat > snapshots/snap_seller_tier.sql << 'EOF'
+{% snapshot snap_seller_tier %}
+    {{
+        config(
+          target_schema='olist_data',
+          strategy='timestamp',
+          unique_key='seller_id',
+          updated_at='updated_at',
+        )
+    }}
 
-snapshots:
-  - name: snap_seller_tier
-    relation: ref('int_seller_performance')
-    config:
-      unique_key: seller_id
-      strategy: timestamp
-      updated_at: updated_at
+    SELECT * FROM {{ ref('int_seller_performance') }}
+
+{% endsnapshot %}
+EOF
+
+        # Challenge 4: Late-arriving data models (carried forward from Session 2)
+        cat > models/staging/stg_orders_with_ingestion.sql << 'EOF'
+{{ config(
+    materialized='incremental',
+    unique_key='order_id',
+    incremental_strategy='merge'
+) }}
+
+SELECT
+    order_id,
+    customer_id,
+    order_status,
+    order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    DATE(order_purchase_timestamp::timestamp) as order_date,
+    
+    -- INGESTION TIME STRATEGY: Track when we received this data
+    CURRENT_TIMESTAMP as ingestion_time,
+    
+    -- Simulate late arrival: some orders arrive 1-3 days after order_date
+    CASE 
+        WHEN order_id IN (
+            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
+            WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
+        ) THEN order_purchase_timestamp::timestamp + INTERVAL '2 days'
+        ELSE order_purchase_timestamp::timestamp + INTERVAL '1 hour'
+    END as simulated_arrival_time
+
+FROM {{ source('olist_data', 'olist_orders') }}
+
+WHERE order_status != 'unavailable'
+  AND order_purchase_timestamp IS NOT NULL
+  
+  {% if is_incremental() %}
+    -- Only process recently arrived data
+    AND order_purchase_timestamp::timestamp > (
+        SELECT MAX(order_purchase_timestamp)
+        FROM {{ this }}
+    )
+  {% endif %}
+EOF
+
+        cat > models/intermediate/int_payment_features_ingestion.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Point-in-time correct features using ingestion time
+WITH prediction_dates AS (
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="'2017-01-01'::date",
+        end_date="'2017-03-31'::date"
+    ) }}
+)
+
+SELECT 
+    pd.date_day as date,
+    o.customer_id,
+    COUNT(DISTINCT o.order_id) as orders_count,
+    SUM(p.payment_value) as total_payments,
+    'ingestion_time_tracking' as method
+FROM prediction_dates pd
+CROSS JOIN {{ ref('stg_orders_with_ingestion') }} o
+INNER JOIN {{ ref('stg_order_payments') }} p
+    ON o.order_id = p.order_id
+WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  -- CRITICAL: Only use data we "knew" at prediction time
+  AND o.simulated_arrival_time <= pd.date_day
+  AND DATE(o.order_purchase_timestamp) <= pd.date_day
+GROUP BY 1, 2
 EOF
 
         # Session 2 incremental model (carried forward to Session 3)
@@ -1183,7 +1091,7 @@ WITH customer_dates AS (
     {% if is_incremental() %}
       -- Only process recent feature dates for incremental runs
       AND d.date_day >= (
-        SELECT MAX(date) - INTERVAL '14 days'
+        SELECT MAX(date)
         FROM {{ this }}
       )
     {% endif %}
@@ -1201,9 +1109,8 @@ daily_payments AS (
     WHERE o.order_status NOT IN ('canceled', 'unavailable')
     
     {% if is_incremental() %}
-      -- Look back for late-arriving data
       AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(date) - INTERVAL '14 days'
+        SELECT MAX(date)
         FROM {{ this }}
       )
     {% endif %}
@@ -1288,312 +1195,6 @@ EOF
 {% endmacro %}
 EOF
 
-        # Session 3: Mart 1 - Customer Features Enriched
-        mkdir -p models/mart
-        cat > models/mart/mart_customer_features_enriched.sql << 'EOF'
-{{ config(
-    materialized='table',
-    post_hook=[
-        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_city_tier
-         ON {{ this }} (city_tier, economic_zone)",
-        "ANALYZE {{ this }}"
-    ]
-) }}
-
-WITH latest_features_ranked AS (
-    -- Get most recent features for each customer with ranking
-    SELECT
-        customer_id,
-        date,
-        total_payment_value as customer_revenue,
-        total_orders,
-        days_since_landing,
-        landing_date,
-        ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY date DESC) as rn
-    FROM {{ ref('int_customer_daily_features') }}
-),
-
-latest_features AS (
-    -- Filter to only the most recent record per customer
-    SELECT
-        customer_id,
-        date,
-        customer_revenue,
-        total_orders,
-        days_since_landing,
-        landing_date
-    FROM latest_features_ranked
-    WHERE rn = 1
-),
-
-customer_locations AS (
-    -- Get customer city/state information
-    SELECT
-        customer_id,
-        customer_city as city,
-        customer_state as state
-    FROM {{ ref('stg_customers') }}
-)
-
-SELECT
-    f.*,
-    l.city,
-    l.state,
-    -- Geographic enrichment from brazil_cities seed
-    COALESCE(c.region, 'Unknown') as region,
-    COALESCE(c.population_tier, 'unknown') as city_tier,
-    COALESCE(c.economic_zone, 'unknown') as economic_zone,
-    COALESCE(c.logistics_hub, 0) as is_logistics_hub,
-
-    -- Add derived features based on enrichment
-    CASE
-        WHEN c.economic_zone = 'primary' THEN 'high_opportunity'
-        WHEN c.economic_zone = 'secondary' THEN 'medium_opportunity'
-        ELSE 'emerging_market'
-    END as market_opportunity,
-
-    CASE
-        WHEN COALESCE(c.logistics_hub, 0) = 1 AND f.customer_revenue > 1000 THEN 'premium_fast_delivery'
-        WHEN COALESCE(c.logistics_hub, 0) = 1 THEN 'standard_fast_delivery'
-        WHEN f.customer_revenue > 1000 THEN 'premium_standard'
-        ELSE 'standard'
-    END as service_tier,
-
-    -- Business score combining revenue and geography
-    CASE
-        WHEN f.customer_revenue > 2000 AND c.economic_zone = 'primary' THEN 100
-        WHEN f.customer_revenue > 2000 THEN 85
-        WHEN f.customer_revenue > 1000 AND c.economic_zone = 'primary' THEN 75
-        WHEN f.customer_revenue > 1000 THEN 65
-        WHEN f.customer_revenue > 500 THEN 50
-        WHEN f.customer_revenue > 200 THEN 35
-        ELSE 20
-    END as business_priority_score
-
-FROM latest_features f
-LEFT JOIN customer_locations l
-    ON f.customer_id = l.customer_id
-LEFT JOIN {{ ref('brazil_cities') }} c
-    ON LOWER(TRIM(l.city)) = LOWER(TRIM(c.city))
-EOF
-
-        # Session 3: Mart 2 - Customer Behavior Daily
-        cat > models/mart/mart_customer_behavior_daily.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Daily behavioral features for customers
--- Tracks product diversity, seller preferences, payment patterns, and engagement
--- Key: customer_id + date (joinable with mart_customer_features_enriched)
-
-WITH customer_dates AS (
-    -- Use same date spine as features mart for consistency
-    SELECT DISTINCT
-        customer_id,
-        date as feature_date
-    FROM {{ ref('int_customer_daily_features') }}
-),
-
-order_details AS (
-    -- Get all order details with products, sellers, and payments
-    SELECT
-        o.customer_id,
-        DATE(o.order_purchase_timestamp) as order_date,
-        oi.product_id,
-        oi.seller_id,
-        oi.price,
-        p.payment_type,
-        p.payment_value
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_items') }} oi
-        ON o.order_id = oi.order_id
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-),
-
-cumulative_diversity AS (
-    -- Calculate cumulative product and seller diversity up to each date
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Product diversity metrics
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.product_id
-        END) as cumulative_unique_products,
-
-        -- Seller diversity metrics
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.seller_id
-        END) as cumulative_unique_sellers,
-
-        -- Price preferences (cumulative)
-        AVG(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as avg_item_price_all_time,
-
-        MIN(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as min_item_price,
-
-        MAX(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as max_item_price
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-),
-
-rolling_metrics AS (
-    -- Calculate rolling window metrics for recent behavior
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Recent product diversity (last 30 days)
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.product_id
-        END) as unique_products_30d,
-
-        -- Recent seller diversity (last 30 days)
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.seller_id
-        END) as unique_sellers_30d,
-
-        -- Recent average price
-        AVG(CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.price
-        END) as avg_item_price_30d,
-
-        -- Count orders in different windows for engagement
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '7 days'
-            THEN od.order_date
-        END) as order_days_7d,
-
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.order_date
-        END) as order_days_30d
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-),
-
-payment_preferences AS (
-    -- Calculate payment method preferences
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Most used payment type
-        MODE() WITHIN GROUP (ORDER BY
-            CASE WHEN od.order_date <= cd.feature_date
-            THEN od.payment_type END
-        ) as primary_payment_type,
-
-        -- Payment method diversity
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.payment_type
-        END) as payment_methods_used,
-
-        -- Credit card usage rate
-        SUM(CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.payment_type = 'credit_card'
-            THEN od.payment_value
-            ELSE 0
-        END) / NULLIF(SUM(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.payment_value
-        END), 0) as credit_card_rate
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-)
-
-SELECT
-    cd.customer_id,
-    cd.feature_date,
-
-    -- Product diversity features
-    COALESCE(cum.cumulative_unique_products, 0) as cumulative_unique_products,
-    COALESCE(rm.unique_products_30d, 0) as unique_products_30d,
-
-    -- Seller diversity features
-    COALESCE(cum.cumulative_unique_sellers, 0) as cumulative_unique_sellers,
-    COALESCE(rm.unique_sellers_30d, 0) as unique_sellers_30d,
-
-    -- Price preference features
-    ROUND(COALESCE(cum.avg_item_price_all_time, 0)::NUMERIC, 2) as avg_item_price_all_time,
-    ROUND(COALESCE(rm.avg_item_price_30d, 0)::NUMERIC, 2) as avg_item_price_30d,
-    ROUND(COALESCE(cum.min_item_price, 0)::NUMERIC, 2) as min_item_price,
-    ROUND(COALESCE(cum.max_item_price, 0)::NUMERIC, 2) as max_item_price,
-
-    -- Price tier preference (derived feature)
-    CASE
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 200 THEN 'premium'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 100 THEN 'mid_tier'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 50 THEN 'value'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) > 0 THEN 'budget'
-        ELSE 'no_purchases'
-    END as price_tier_preference,
-
-    -- Payment behavior features
-    COALESCE(pp.primary_payment_type, 'unknown') as primary_payment_type,
-    COALESCE(pp.payment_methods_used, 0) as payment_methods_used,
-    ROUND(COALESCE(pp.credit_card_rate, 0)::NUMERIC, 2) as credit_card_usage_rate,
-
-    -- Engagement features
-    COALESCE(rm.order_days_7d, 0) as order_days_7d,
-    COALESCE(rm.order_days_30d, 0) as order_days_30d,
-
-    -- Engagement tier using the classify_tier macro from Challenge 2!
-    {{ classify_tier('COALESCE(rm.order_days_30d, 0)', 'volume') }} as engagement_tier,
-
-    -- Diversity score (combined metric)
-    CASE
-        WHEN COALESCE(cum.cumulative_unique_products, 0) >= 10
-         AND COALESCE(cum.cumulative_unique_sellers, 0) >= 5 THEN 'high_diversity'
-        WHEN COALESCE(cum.cumulative_unique_products, 0) >= 5
-         AND COALESCE(cum.cumulative_unique_sellers, 0) >= 3 THEN 'medium_diversity'
-        WHEN COALESCE(cum.cumulative_unique_products, 0) > 0 THEN 'low_diversity'
-        ELSE 'no_diversity'
-    END as diversity_profile
-
-FROM customer_dates cd
-LEFT JOIN cumulative_diversity cum
-    ON cd.customer_id = cum.customer_id
-    AND cd.feature_date = cum.feature_date
-LEFT JOIN rolling_metrics rm
-    ON cd.customer_id = rm.customer_id
-    AND cd.feature_date = rm.feature_date
-LEFT JOIN payment_preferences pp
-    ON cd.customer_id = pp.customer_id
-    AND cd.feature_date = pp.feature_date
-ORDER BY cd.customer_id, cd.feature_date
-EOF
-
         echo "Step 4: Running dbt models..."
         $DOCKER_COMPOSE exec -T dbt-workshop dbt run
 
@@ -1620,8 +1221,8 @@ EOF
         echo "  - int_customer_tiers (using classify_tier macro)"
         echo "  - int_customer_daily_features_inc (incremental version)"
         echo "  - int_seller_performance (refactored to use classify_tier macro)"
-        echo "  - mart_customer_features_enriched (geographic enrichment)"
-        echo "  - mart_customer_behavior_daily (behavioral features)"
+        echo "  - stg_orders_with_ingestion (ingestion time tracking)"
+        echo "  - int_payment_features_ingestion (point-in-time features)"
         echo "Ready for testing challenges!"
         ;;
 
@@ -1657,17 +1258,6 @@ sources:
         columns:
           - name: order_id
             description: Order identifier
-      - name: olist_late_orders
-        description: Orders with simulated late arrival times for testing ingestion time tracking
-        columns:
-          - name: order_id
-            description: Order identifier
-          - name: customer_id
-            description: Customer identifier
-          - name: order_purchase_timestamp
-            description: When the order was actually purchased (transaction time)
-          - name: order_approved_at
-            description: When the order was approved/entered our system (ingestion time)
 EOF
 
         # Session 1 staging models
@@ -1862,33 +1452,6 @@ WHERE oi.order_id IS NOT NULL
   AND o.order_purchase_timestamp IS NOT NULL
 EOF
 
-        cat > models/staging/stg_late_orders.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Staging model for late-arriving orders
--- Joins orders with payments to get transaction amounts
--- Includes both transaction time and ingestion time for point-in-time correctness
-
-SELECT
-    lo.order_id,
-    lo.customer_id,
-    lo.order_purchase_timestamp,
-    DATE(lo.order_purchase_timestamp) as transaction_date,
-    lo.order_approved_at as ingestion_timestamp,
-    DATE(lo.order_approved_at) as ingestion_date,
-    p.payment_value::DECIMAL(10,2) as payment_value,
-
-    -- Calculate how late this order arrived (for analysis)
-    (lo.order_approved_at - lo.order_purchase_timestamp) as arrival_delay
-
-FROM {{ source('olist_data', 'olist_late_orders') }} lo
-INNER JOIN {{ source('olist_data', 'olist_order_payments') }} p
-    ON lo.order_id = p.order_id
-WHERE lo.order_id IS NOT NULL
-  AND lo.customer_id IS NOT NULL
-  AND p.payment_value > 0
-EOF
-
         cat > models/intermediate/int_seller_performance.sql << 'EOF'
 {{ config(materialized='table') }}
 
@@ -1922,64 +1485,6 @@ SELECT
 FROM seller_metrics
 EOF
 
-        cat > models/intermediate/int_customer_payment_features.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Calculate daily payment features for customers using ingestion time tracking
--- This ensures point-in-time correctness: only count payments that had arrived by the feature date
-
-WITH feature_dates AS (
-    -- Generate all dates we want to calculate features for
-    {{ dbt_utils.date_spine(
-        datepart="day",
-        start_date="'2018-01-01'::date",
-        end_date="'2018-03-31'::date"
-    ) }}
-),
-
-all_customers AS (
-    -- Get all unique customers
-    SELECT DISTINCT customer_id
-    FROM {{ ref('stg_late_orders') }}
-),
-
-customer_feature_dates AS (
-    -- For each customer, generate all feature dates
-    SELECT
-        ac.customer_id,
-        fd.date_day as feature_date
-    FROM all_customers ac
-    CROSS JOIN feature_dates fd
-),
-
-point_in_time_payments AS (
-    -- For each feature date, only include payments that:
-    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
-    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
-    SELECT
-        cfd.customer_id,
-        cfd.feature_date,
-        SUM(lo.payment_value) as total_payment_value,
-        COUNT(DISTINCT lo.order_id) as total_orders
-    FROM customer_feature_dates cfd
-    LEFT JOIN {{ ref('stg_late_orders') }} lo
-        ON cfd.customer_id = lo.customer_id
-        -- Transaction must have happened by feature date
-        AND lo.transaction_date <= cfd.feature_date
-        -- Data must have arrived in our system by feature date (KEY LOGIC!)
-        AND lo.ingestion_date <= cfd.feature_date
-    GROUP BY 1, 2
-)
-
-SELECT
-    customer_id,
-    feature_date,
-    COALESCE(total_payment_value, 0) as total_payment_value,
-    COALESCE(total_orders, 0) as total_orders
-FROM point_in_time_payments
-ORDER BY customer_id, feature_date
-EOF
-
         # Session 2: Incremental model WITH updated_at (final solution)
         cat > models/intermediate/int_customer_daily_features_inc.sql << 'EOF'
 {{ config(
@@ -2008,7 +1513,7 @@ WITH customer_dates AS (
       
     {% if is_incremental() %}
       AND d.date_day >= (
-        SELECT MAX(date) - INTERVAL '14 days'
+        SELECT MAX(date)
         FROM {{ this }}
       )
     {% endif %}
@@ -2027,7 +1532,7 @@ daily_payments AS (
     
     {% if is_incremental() %}
       AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(date) - INTERVAL '14 days'
+        SELECT MAX(date)
         FROM {{ this }}
       )
     {% endif %}
@@ -2103,16 +1608,90 @@ SELECT
 FROM customer_metrics
 EOF
 
-        cat > snapshots/snapshots.yml << 'EOF'
-version: 2
+        cat > snapshots/snap_seller_tier.sql << 'EOF'
+{% snapshot snap_seller_tier %}
+    {{
+        config(
+          target_schema='olist_data',
+          strategy='timestamp',
+          unique_key='seller_id',
+          updated_at='updated_at',
+        )
+    }}
 
-snapshots:
-  - name: snap_seller_tier
-    relation: ref('int_seller_performance')
-    config:
-      unique_key: seller_id
-      strategy: timestamp
-      updated_at: updated_at
+    SELECT * FROM {{ ref('int_seller_performance') }}
+
+{% endsnapshot %}
+EOF
+
+        # Challenge 4: Late-arriving data models
+        cat > models/staging/stg_orders_with_ingestion.sql << 'EOF'
+{{ config(
+    materialized='incremental',
+    unique_key='order_id',
+    incremental_strategy='merge'
+) }}
+
+SELECT
+    order_id,
+    customer_id,
+    order_status,
+    order_purchase_timestamp::timestamp as order_purchase_timestamp,
+    DATE(order_purchase_timestamp::timestamp) as order_date,
+    
+    -- INGESTION TIME STRATEGY: Track when we received this data
+    CURRENT_TIMESTAMP as ingestion_time,
+    
+    -- Simulate late arrival: some orders arrive 1-3 days after order_date
+    CASE 
+        WHEN order_id IN (
+            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
+            WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
+        ) THEN order_purchase_timestamp::timestamp + INTERVAL '2 days'
+        ELSE order_purchase_timestamp::timestamp + INTERVAL '1 hour'
+    END as simulated_arrival_time
+
+FROM {{ source('olist_data', 'olist_orders') }}
+
+WHERE order_status != 'unavailable'
+  AND order_purchase_timestamp IS NOT NULL
+  
+  {% if is_incremental() %}
+    -- Only process recently arrived data
+    AND order_purchase_timestamp::timestamp > (
+        SELECT MAX(order_purchase_timestamp)
+        FROM {{ this }}
+    )
+  {% endif %}
+EOF
+
+        cat > models/intermediate/int_payment_features_ingestion.sql << 'EOF'
+{{ config(materialized='table') }}
+
+-- Point-in-time correct features using ingestion time
+WITH prediction_dates AS (
+    {{ dbt_utils.date_spine(
+        datepart="day",
+        start_date="'2017-01-01'::date",
+        end_date="'2017-03-31'::date"
+    ) }}
+)
+
+SELECT 
+    pd.date_day as date,
+    o.customer_id,
+    COUNT(DISTINCT o.order_id) as orders_count,
+    SUM(p.payment_value) as total_payments,
+    'ingestion_time_tracking' as method
+FROM prediction_dates pd
+CROSS JOIN {{ ref('stg_orders_with_ingestion') }} o
+INNER JOIN {{ ref('stg_order_payments') }} p
+    ON o.order_id = p.order_id
+WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  -- CRITICAL: Only use data we "knew" at prediction time
+  AND o.simulated_arrival_time <= pd.date_day
+  AND DATE(o.order_purchase_timestamp) <= pd.date_day
+GROUP BY 1, 2
 EOF
 
         # Seeds
@@ -2161,312 +1740,6 @@ EOF
 {% endmacro %}
 EOF
 
-        # Mart 1 - Customer Features Enriched
-        mkdir -p models/mart
-        cat > models/mart/mart_customer_features_enriched.sql << 'EOF'
-{{ config(
-    materialized='table',
-    post_hook=[
-        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_city_tier
-         ON {{ this }} (city_tier, economic_zone)",
-        "ANALYZE {{ this }}"
-    ]
-) }}
-
-WITH latest_features_ranked AS (
-    -- Get most recent features for each customer with ranking
-    SELECT
-        customer_id,
-        date,
-        total_payment_value as customer_revenue,
-        total_orders,
-        days_since_landing,
-        landing_date,
-        ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY date DESC) as rn
-    FROM {{ ref('int_customer_daily_features') }}
-),
-
-latest_features AS (
-    -- Filter to only the most recent record per customer
-    SELECT
-        customer_id,
-        date,
-        customer_revenue,
-        total_orders,
-        days_since_landing,
-        landing_date
-    FROM latest_features_ranked
-    WHERE rn = 1
-),
-
-customer_locations AS (
-    -- Get customer city/state information
-    SELECT
-        customer_id,
-        customer_city as city,
-        customer_state as state
-    FROM {{ ref('stg_customers') }}
-)
-
-SELECT
-    f.*,
-    l.city,
-    l.state,
-    -- Geographic enrichment from brazil_cities seed
-    COALESCE(c.region, 'Unknown') as region,
-    COALESCE(c.population_tier, 'unknown') as city_tier,
-    COALESCE(c.economic_zone, 'unknown') as economic_zone,
-    COALESCE(c.logistics_hub, 0) as is_logistics_hub,
-
-    -- Add derived features based on enrichment
-    CASE
-        WHEN c.economic_zone = 'primary' THEN 'high_opportunity'
-        WHEN c.economic_zone = 'secondary' THEN 'medium_opportunity'
-        ELSE 'emerging_market'
-    END as market_opportunity,
-
-    CASE
-        WHEN COALESCE(c.logistics_hub, 0) = 1 AND f.customer_revenue > 1000 THEN 'premium_fast_delivery'
-        WHEN COALESCE(c.logistics_hub, 0) = 1 THEN 'standard_fast_delivery'
-        WHEN f.customer_revenue > 1000 THEN 'premium_standard'
-        ELSE 'standard'
-    END as service_tier,
-
-    -- Business score combining revenue and geography
-    CASE
-        WHEN f.customer_revenue > 2000 AND c.economic_zone = 'primary' THEN 100
-        WHEN f.customer_revenue > 2000 THEN 85
-        WHEN f.customer_revenue > 1000 AND c.economic_zone = 'primary' THEN 75
-        WHEN f.customer_revenue > 1000 THEN 65
-        WHEN f.customer_revenue > 500 THEN 50
-        WHEN f.customer_revenue > 200 THEN 35
-        ELSE 20
-    END as business_priority_score
-
-FROM latest_features f
-LEFT JOIN customer_locations l
-    ON f.customer_id = l.customer_id
-LEFT JOIN {{ ref('brazil_cities') }} c
-    ON LOWER(TRIM(l.city)) = LOWER(TRIM(c.city))
-EOF
-
-        # Mart 2 - Customer Behavior Daily
-        cat > models/mart/mart_customer_behavior_daily.sql << 'EOF'
-{{ config(materialized='table') }}
-
--- Daily behavioral features for customers
--- Tracks product diversity, seller preferences, payment patterns, and engagement
--- Key: customer_id + date (joinable with mart_customer_features_enriched)
-
-WITH customer_dates AS (
-    -- Use same date spine as features mart for consistency
-    SELECT DISTINCT
-        customer_id,
-        date as feature_date
-    FROM {{ ref('int_customer_daily_features') }}
-),
-
-order_details AS (
-    -- Get all order details with products, sellers, and payments
-    SELECT
-        o.customer_id,
-        DATE(o.order_purchase_timestamp) as order_date,
-        oi.product_id,
-        oi.seller_id,
-        oi.price,
-        p.payment_type,
-        p.payment_value
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_items') }} oi
-        ON o.order_id = oi.order_id
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-),
-
-cumulative_diversity AS (
-    -- Calculate cumulative product and seller diversity up to each date
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Product diversity metrics
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.product_id
-        END) as cumulative_unique_products,
-
-        -- Seller diversity metrics
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.seller_id
-        END) as cumulative_unique_sellers,
-
-        -- Price preferences (cumulative)
-        AVG(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as avg_item_price_all_time,
-
-        MIN(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as min_item_price,
-
-        MAX(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.price
-        END) as max_item_price
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-),
-
-rolling_metrics AS (
-    -- Calculate rolling window metrics for recent behavior
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Recent product diversity (last 30 days)
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.product_id
-        END) as unique_products_30d,
-
-        -- Recent seller diversity (last 30 days)
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.seller_id
-        END) as unique_sellers_30d,
-
-        -- Recent average price
-        AVG(CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.price
-        END) as avg_item_price_30d,
-
-        -- Count orders in different windows for engagement
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '7 days'
-            THEN od.order_date
-        END) as order_days_7d,
-
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.order_date > cd.feature_date - INTERVAL '30 days'
-            THEN od.order_date
-        END) as order_days_30d
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-),
-
-payment_preferences AS (
-    -- Calculate payment method preferences
-    SELECT
-        cd.customer_id,
-        cd.feature_date,
-
-        -- Most used payment type
-        MODE() WITHIN GROUP (ORDER BY
-            CASE WHEN od.order_date <= cd.feature_date
-            THEN od.payment_type END
-        ) as primary_payment_type,
-
-        -- Payment method diversity
-        COUNT(DISTINCT CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.payment_type
-        END) as payment_methods_used,
-
-        -- Credit card usage rate
-        SUM(CASE
-            WHEN od.order_date <= cd.feature_date
-            AND od.payment_type = 'credit_card'
-            THEN od.payment_value
-            ELSE 0
-        END) / NULLIF(SUM(CASE
-            WHEN od.order_date <= cd.feature_date
-            THEN od.payment_value
-        END), 0) as credit_card_rate
-
-    FROM customer_dates cd
-    LEFT JOIN order_details od
-        ON cd.customer_id = od.customer_id
-    GROUP BY cd.customer_id, cd.feature_date
-)
-
-SELECT
-    cd.customer_id,
-    cd.feature_date,
-
-    -- Product diversity features
-    COALESCE(cum.cumulative_unique_products, 0) as cumulative_unique_products,
-    COALESCE(rm.unique_products_30d, 0) as unique_products_30d,
-
-    -- Seller diversity features
-    COALESCE(cum.cumulative_unique_sellers, 0) as cumulative_unique_sellers,
-    COALESCE(rm.unique_sellers_30d, 0) as unique_sellers_30d,
-
-    -- Price preference features
-    ROUND(COALESCE(cum.avg_item_price_all_time, 0)::NUMERIC, 2) as avg_item_price_all_time,
-    ROUND(COALESCE(rm.avg_item_price_30d, 0)::NUMERIC, 2) as avg_item_price_30d,
-    ROUND(COALESCE(cum.min_item_price, 0)::NUMERIC, 2) as min_item_price,
-    ROUND(COALESCE(cum.max_item_price, 0)::NUMERIC, 2) as max_item_price,
-
-    -- Price tier preference (derived feature)
-    CASE
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 200 THEN 'premium'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 100 THEN 'mid_tier'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) >= 50 THEN 'value'
-        WHEN COALESCE(cum.avg_item_price_all_time, 0) > 0 THEN 'budget'
-        ELSE 'no_purchases'
-    END as price_tier_preference,
-
-    -- Payment behavior features
-    COALESCE(pp.primary_payment_type, 'unknown') as primary_payment_type,
-    COALESCE(pp.payment_methods_used, 0) as payment_methods_used,
-    ROUND(COALESCE(pp.credit_card_rate, 0)::NUMERIC, 2) as credit_card_usage_rate,
-
-    -- Engagement features
-    COALESCE(rm.order_days_7d, 0) as order_days_7d,
-    COALESCE(rm.order_days_30d, 0) as order_days_30d,
-
-    -- Engagement tier using the classify_tier macro from Challenge 2!
-    {{ classify_tier('COALESCE(rm.order_days_30d, 0)', 'volume') }} as engagement_tier,
-
-    -- Diversity score (combined metric)
-    CASE
-        WHEN COALESCE(cum.cumulative_unique_products, 0) >= 10
-         AND COALESCE(cum.cumulative_unique_sellers, 0) >= 5 THEN 'high_diversity'
-        WHEN COALESCE(cum.cumulative_unique_products, 0) >= 5
-         AND COALESCE(cum.cumulative_unique_sellers, 0) >= 3 THEN 'medium_diversity'
-        WHEN COALESCE(cum.cumulative_unique_products, 0) > 0 THEN 'low_diversity'
-        ELSE 'no_diversity'
-    END as diversity_profile
-
-FROM customer_dates cd
-LEFT JOIN cumulative_diversity cum
-    ON cd.customer_id = cum.customer_id
-    AND cd.feature_date = cum.feature_date
-LEFT JOIN rolling_metrics rm
-    ON cd.customer_id = rm.customer_id
-    AND cd.feature_date = rm.feature_date
-LEFT JOIN payment_preferences pp
-    ON cd.customer_id = pp.customer_id
-    AND cd.feature_date = pp.feature_date
-ORDER BY cd.customer_id, cd.feature_date
-EOF
-
         echo "Step 4: Running dbt models..."
         $DOCKER_COMPOSE exec -T dbt-workshop dbt run
 
@@ -2490,6 +1763,8 @@ EOF
         echo "All solutions included:"
         echo "  - All Session 1, 2, and 3 models"
         echo "  - int_customer_daily_features_inc with updated_at column"
+        echo "  - stg_orders_with_ingestion (ingestion time tracking)"
+        echo "  - int_payment_features_ingestion (point-in-time features)"
         echo "  - seeds/brazil_cities.csv"
         echo "  - macros/classify_tier.sql"
         echo "  - Snapshots with 4 iterations"
