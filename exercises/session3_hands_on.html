@@ -619,20 +619,8 @@ dbt test --store-failures          # Save failures for debugging</pre>
         <h2>🎯 Challenge 1: Seeds for Business Logic</h2>
         <p>Use seed files to manage reference data that enriches your ML features with geographic information.</p>
 
-        <div class="info-box">
-            <h3>📋 Concrete Instructions</h3>
-            <p><strong>What you'll create:</strong></p>
-            <ul>
-                <li><strong>Geographic data:</strong> Brazilian city tiers and economic zones</li>
-                <li><strong>Feature enrichment:</strong> Join this data to your customer features</li>
-                <li><strong>Testing:</strong> Validate the enrichment works correctly</li>
-            </ul>
-
-            <p><strong>Why this matters for ML:</strong> Business rules as code, version controlled, testable</p>
-        </div>
-
         <h3>Step 1: Create the seed file</h3>
-        <p>First, you'll need a seed file with Brazilian city geographic data. Create <code>seeds/brazil_cities.csv</code> with the following content:</p>
+        <p>Create <code>seeds/brazil_cities.csv</code> with Brazilian city geographic data:</p>
 
         <pre>
 city,state,region,population_tier,economic_zone,logistics_hub
@@ -652,146 +640,76 @@ Guarulhos,SP,Southeast,medium,primary,1
 Campinas,SP,Southeast,medium,primary,1
 São Luís,MA,Northeast,medium,tertiary,0</pre>
 
+        <h3>Step 2: Load the seed into your database</h3>
+        <pre>dbt seed</pre>
+
+        <h3>Step 3: Verify the seed was loaded</h3>
+        <p>Query the table to confirm it exists:</p>
+        <pre>
+SELECT * FROM olist_data.brazil_cities LIMIT 5;
+
+-- Check the row count
+SELECT COUNT(*) as city_count FROM olist_data.brazil_cities;</pre>
+
+        <h3>Step 4: Create an enriched mart</h3>
+        <p>Create <code>models/mart/mart_customer_features_enriched.sql</code> that joins customer data with the geographic seed:</p>
+
         <h3>Requirements:</h3>
         <ol>
-            <li>Use the seed file data above to create <code>seeds/brazil_cities.csv</code></li>
-            <li>Load seeds into your database with <code>dbt seed</code></li>
-            <li>Create an enriched mart table (<code>models/mart/mart_customer_features_enriched.sql</code>) that joins your customer features with the seed file. The mart should get the latest features for each customer and add geographic attributes like city tier, economic zone, and logistics hub status.</li>
-            <li>Test that enrichment is working correctly</li>
+            <li>Join <code>stg_customers</code> with <code>brazil_cities</code> on city name</li>
+            <li>Include customer_id, city, state from customers</li>
+            <li>Add region, population_tier, economic_zone, logistics_hub from the seed</li>
+            <li>Handle customers whose city isn't in the seed (use COALESCE for defaults)</li>
         </ol>
 
         <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
         <div id="solution1" class="solution">
-            <h4>Step 1: Load the seeds</h4>
+            <h4>models/mart/mart_customer_features_enriched.sql</h4>
             <pre>
-# Load the seed file into your database
-dbt seed
-</pre>
-
-            <h4>Step 2: Create enriched mart table</h4>
-            <pre>
-{{ config(
-    materialized='table',
-    post_hook=[
-        "CREATE INDEX IF NOT EXISTS idx_{{ this.name }}_city_tier
-         ON {{ this }} (city_tier, economic_zone)",
-        "ANALYZE {{ this }}"
-    ]
-) }}
-
-WITH latest_features_ranked AS (
-    -- Get most recent features for each customer with ranking
-    SELECT
-        customer_id,
-        date,
-        total_payment_value as customer_revenue,
-        orders_7d,
-        orders_14d as total_orders,
-        days_since_landing,
-        landing_date,
-        ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY date DESC) as rn
-    FROM {{ ref('int_customer_daily_features') }}
-),
-
-latest_features AS (
-    -- Filter to only the most recent record per customer
-    SELECT
-        customer_id,
-        date,
-        customer_revenue,
-        orders_7d,
-        total_orders,
-        days_since_landing,
-        landing_date
-    FROM latest_features_ranked
-    WHERE rn = 1
-),
-
-customer_locations AS (
-    -- Get customer city/state information
-    SELECT
-        customer_id,
-        customer_city as city,
-        customer_state as state
-    FROM {{ ref('stg_customers') }}
-)
+{{ config(materialized='table') }}
 
 SELECT
-    f.*,
-    l.city,
-    l.state,
+    c.customer_id,
+    c.customer_city as city,
+    c.customer_state as state,
+    
     -- Geographic enrichment from brazil_cities seed
-    COALESCE(c.region, 'Unknown') as region,
-    COALESCE(c.population_tier, 'unknown') as city_tier,
-    COALESCE(c.economic_zone, 'unknown') as economic_zone,
-    COALESCE(c.logistics_hub, 0) as is_logistics_hub,
+    COALESCE(bc.region, 'Unknown') as region,
+    COALESCE(bc.population_tier, 'unknown') as city_tier,
+    COALESCE(bc.economic_zone, 'unknown') as economic_zone,
+    COALESCE(bc.logistics_hub, 0) as is_logistics_hub
 
-    -- Add derived features based on enrichment
-    CASE
-        WHEN c.economic_zone = 'primary' THEN 'high_opportunity'
-        WHEN c.economic_zone = 'secondary' THEN 'medium_opportunity'
-        ELSE 'emerging_market'
-    END as market_opportunity,
+FROM {{ ref('stg_customers') }} c
+LEFT JOIN {{ ref('brazil_cities') }} bc
+    ON LOWER(TRIM(c.customer_city)) = LOWER(TRIM(bc.city))</pre>
 
-    CASE
-        WHEN COALESCE(c.logistics_hub, 0) = 1 AND f.customer_revenue > 1000 THEN 'premium_fast_delivery'
-        WHEN COALESCE(c.logistics_hub, 0) = 1 THEN 'standard_fast_delivery'
-        WHEN f.customer_revenue > 1000 THEN 'premium_standard'
-        ELSE 'standard'
-    END as service_tier,
-
-    -- Business score combining revenue and geography
-    CASE
-        WHEN f.customer_revenue > 2000 AND c.economic_zone = 'primary' THEN 100
-        WHEN f.customer_revenue > 2000 THEN 85
-        WHEN f.customer_revenue > 1000 AND c.economic_zone = 'primary' THEN 75
-        WHEN f.customer_revenue > 1000 THEN 65
-        WHEN f.customer_revenue > 500 THEN 50
-        WHEN f.customer_revenue > 200 THEN 35
-        ELSE 20
-    END as business_priority_score
-
-FROM latest_features f
-LEFT JOIN customer_locations l
-    ON f.customer_id = l.customer_id
-LEFT JOIN {{ ref('brazil_cities') }} c
-    ON LOWER(TRIM(l.city)) = LOWER(TRIM(c.city))</pre>
-
-            <h4>Step 3: Run and test the enrichment</h4>
-            <p>Now run the mart model to materialize the enriched table, then verify that the seed data is being correctly joined to customer features.</p>
+            <h4>Run and verify:</h4>
             <pre>
-# Run the enriched mart
+# Build the mart
 dbt run --select mart_customer_features_enriched
 
-# Verify seeds are being used correctly
-SELECT
+# Check how many customers matched to the seed
+SELECT 
     city_tier,
-    economic_zone,
-    market_opportunity,
-    COUNT(*) as customer_count,
-    AVG(customer_revenue) as avg_revenue,
-    AVG(business_priority_score) as avg_priority_score
-FROM mart_customer_features_enriched
-GROUP BY city_tier, economic_zone, market_opportunity
-ORDER BY avg_priority_score DESC;
+    COUNT(*) as customer_count
+FROM olist_data.mart_customer_features_enriched
+GROUP BY city_tier
+ORDER BY customer_count DESC;
 
-# Check for customers without enrichment (troubleshooting)
-SELECT
-    COUNT(*) as total_customers,
-    COUNT(CASE WHEN city_tier = 'unknown' THEN 1 END) as unknown_city_count,
-    ROUND(100.0 * COUNT(CASE WHEN city_tier = 'unknown' THEN 1 END) / COUNT(*), 2) as unknown_city_percent,
-    COUNT(CASE WHEN is_logistics_hub = 1 THEN 1 END) as logistics_hub_customers
-FROM mart_customer_features_enriched;</pre>
-        </div>
+# See sample of enriched customers
+SELECT * FROM olist_data.mart_customer_features_enriched 
+WHERE city_tier != 'unknown' 
+LIMIT 10;</pre>
 
-        <div class="optional-challenge">
-            <h3>⭐ Optional Challenge: Seasonal Geographic Adjustments</h3>
-            <p>Create a seed file with seasonal adjustments to geographic zones for holiday shopping patterns:</p>
-            <ul>
-                <li>High season priorities (November-December)</li>
-                <li>Regional festival adjustments (by state)</li>
-                <li>Dynamic logistics capacity</li>
-            </ul>
+            <div class="info-box">
+                <h4>🎓 What You Learned</h4>
+                <ul>
+                    <li><strong>Seeds:</strong> CSV files loaded as database tables with <code>dbt seed</code></li>
+                    <li><strong>Reference with ref():</strong> Use <code>{{ ref('brazil_cities') }}</code> just like any model</li>
+                    <li><strong>COALESCE:</strong> Handle missing matches with default values</li>
+                    <li><strong>Case-insensitive joins:</strong> Use <code>LOWER(TRIM(...))</code> for fuzzy matching</li>
+                </ul>
+            </div>
         </div>
     </div>
 
@@ -823,30 +741,7 @@ FROM mart_customer_features_enriched;</pre>
             <li>Create a macro file <code>macros/classify_tier.sql</code> with a <code>classify_tier()</code> macro</li>
             <li>The macro should accept a metric column and tier type ('volume' or 'revenue')</li>
             <li>Refactor <code>models/intermediate/int_seller_performance.sql</code> from Session 2 to use your new macro</li>
-            <li>Create a NEW model <code>models/intermediate/int_customer_tiers.sql</code> that classifies customers using the same macro</li>
         </ol>
-
-        <div class="info-box">
-            <h3>📁 Project Structure</h3>
-            <p>Your dbt project should look like this:</p>
-            <pre>
-dbt-workshop/
-├── macros/                    ← Create this folder
-│   └── classify_tier.sql     ← Your macro goes here
-├── models/
-│   ├── intermediate/
-│   │   ├── int_seller_performance.sql    ← Refactor this
-│   │   └── int_customer_tiers.sql        ← Create this new model
-│   └── staging/
-├── seeds/
-└── dbt_project.yml</pre>
-            <p><strong>Note:</strong> Macros are stored separately from models in the <code>macros/</code> folder at the project root.</p>
-
-            <p><strong>To create the macros folder:</strong></p>
-            <pre>
-# From your dbt project root (dbt-workshop/)
-mkdir -p macros</pre>
-        </div>
 
         <div class="info-box">
             <h3>📊 Tier Thresholds</h3>
@@ -936,59 +831,10 @@ SELECT
     updated_at
 FROM seller_metrics</pre>
 
-            <h4>Step 3: Create the customer tiers model</h4>
-            <p><strong>Create this new file:</strong> <code>models/intermediate/int_customer_tiers.sql</code></p>
-            <pre>
-{{ config(materialized='table') }}
-
-WITH customer_metrics AS (
-    SELECT
-        o.customer_id,
-        COUNT(DISTINCT o.order_id) as total_orders,
-        SUM(p.payment_value) as total_revenue,
-        AVG(p.payment_value) as avg_order_value,
-        MIN(DATE(o.order_purchase_timestamp)) as first_order_date,
-        MAX(DATE(o.order_purchase_timestamp)) as last_order_date
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-    GROUP BY o.customer_id
-)
-
-SELECT
-    customer_id,
-
-    -- Use the SAME macro for customer tiers!
-    {{ classify_tier('total_orders', 'volume') }} as tier_by_volume,
-    {{ classify_tier('total_revenue', 'revenue') }} as tier_by_revenue,
-
-    total_orders,
-    total_revenue,
-    avg_order_value,
-    first_order_date,
-    last_order_date,
-
-    -- Composite tier: take the better of the two
-    CASE
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'platinum'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'platinum' THEN 'platinum'
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'gold'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'gold' THEN 'gold'
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'silver'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'silver' THEN 'silver'
-        ELSE 'bronze'
-    END as composite_tier
-
-FROM customer_metrics</pre>
-
-            <h4>Step 4: Test the macro reusability</h4>
+            <h4>Step 3: Test the refactored model</h4>
             <pre>
 # Run the refactored seller model
 dbt run --select int_seller_performance
-
-# Run the new customer tiers model
-dbt run --select int_customer_tiers
 
 # Verify tier distribution for sellers
 SELECT seller_tier, COUNT(*) as count
@@ -1000,29 +846,12 @@ ORDER BY
         WHEN 'gold' THEN 2
         WHEN 'silver' THEN 3
         ELSE 4
-    END;
-
-# Verify tier distribution for customers
-SELECT
-    composite_tier,
-    COUNT(*) as customer_count,
-    AVG(total_orders) as avg_orders,
-    AVG(total_revenue) as avg_revenue
-FROM int_customer_tiers
-GROUP BY composite_tier
-ORDER BY
-    CASE composite_tier
-        WHEN 'platinum' THEN 1
-        WHEN 'gold' THEN 2
-        WHEN 'silver' THEN 3
-        ELSE 4
     END;</pre>
 
             <div class="info-box">
                 <h3>✨ What You've Achieved:</h3>
                 <ul>
-                    <li><strong>DRY Code:</strong> One macro, multiple uses</li>
-                    <li><strong>Consistency:</strong> Sellers and customers use identical tier logic</li>
+                    <li><strong>DRY Code:</strong> One macro, reusable across entities</li>
                     <li><strong>Flexibility:</strong> Easy to add new tier types (e.g., 'engagement', 'potential')</li>
                     <li><strong>Maintainability:</strong> Change tier thresholds in one place</li>
                 </ul>
@@ -1206,6 +1035,22 @@ SELECT * FROM dbt_monitoring.quality_log ORDER BY checked_at DESC LIMIT 5;</pre>
             <li>Include severity levels (warn vs error)</li>
         </ol>
 
+        <div class="info-box">
+            <h4>🧪 Run schema tests:</h4>
+            <pre>
+# Test specific models
+dbt test --select stg_orders
+
+# Test with different severities
+dbt test --select stg_customers --fail-fast
+
+# Store failures for inspection
+dbt test --select staging --store-failures
+
+# Check what failed
+# SELECT * FROM main.dbt_test__audit_[test_name];</pre>
+        </div>
+
         <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
         <div id="solution4" class="solution">
             <h4>models/staging/schema.yml</h4>
@@ -1308,20 +1153,6 @@ models:
               config:
                 severity: error
                 error_if: "> 10"  # Fail if more than 10 negative values</pre>
-            
-            <p><strong>Run schema tests:</strong></p>
-            <pre>
-# Test specific models
-dbt test --select stg_orders
-
-# Test with different severities
-dbt test --select stg_customers --fail-fast
-
-# Store failures for inspection
-dbt test --select staging --store-failures
-
-# Check what failed
-# SELECT * FROM main.dbt_test__audit_[test_name];</pre>
         </div>
         
         <div class="optional-challenge">
@@ -1531,182 +1362,163 @@ dbt test --select test_stg_orders_filtering_and_dates --verbose</pre>
     
     <!-- Challenge 5b: Incremental Model Testing -->
     <div id="challenge-5b" class="challenge-box">
-        <h2>🎯 Challenge 5b: Test Incremental Model Behavior</h2>
-        <p>Verify that your incremental model <code>int_customer_daily_features_inc</code> correctly processes only new data during incremental runs.</p>
+        <h2>🎯 Challenge 5b: Unit Test Incremental Model Behavior</h2>
+        <p>Use dbt's unit test framework to verify that your incremental model <code>int_customer_daily_features_inc</code> correctly processes only new data during incremental runs.</p>
 
         <p><strong>Related concepts:</strong> <a href="#tests" class="concept-link">Understanding dbt Tests</a></p>
 
         <div class="info-box">
-            <h3>🔍 The Testing Challenge</h3>
-            <p>Incremental models behave differently on full refresh vs incremental runs. You need to verify:</p>
-            <ul>
-                <li><strong>Full Refresh:</strong> All rows are processed and have the same timestamp</li>
-                <li><strong>Incremental Run:</strong> Only new rows are processed with a newer timestamp</li>
-            </ul>
-            <p><strong>Key Insight:</strong> Add an <code>updated_at</code> column with <code>CURRENT_TIMESTAMP</code> to track when each row was processed!</p>
+            <h3>🔍 Testing Incremental Logic with Unit Tests</h3>
+            <p>The key insight: in dbt unit tests, you can <strong>mock the <code>this</code> table</strong> to simulate existing data. When <code>this</code> is mocked, <code>is_incremental()</code> returns <code>true</code>, allowing you to test the incremental filter logic!</p>
+            
+            <h4>The Approach:</h4>
+            <ol>
+                <li><strong>Mock <code>this</code>:</strong> Provide rows representing "existing" data in the table with an older <code>created_at</code></li>
+                <li><strong>Mock inputs:</strong> Provide source data that should trigger new row processing</li>
+                <li><strong>Verify output:</strong> Check that only new rows are produced (the incremental filter worked)</li>
+            </ol>
+            
+            <p><strong>Note:</strong> The unit test output contains only newly processed rows (not the existing <code>this</code> rows). This proves the incremental logic is working!</p>
         </div>
 
         <h3>Requirements:</h3>
         <ol>
-            <li>Add an <code>updated_at</code> column to <code>int_customer_daily_features_inc</code> that captures <code>CURRENT_TIMESTAMP</code></li>
-            <li>Run a full refresh with a limited date range (e.g., <code>max_date: "2017-01-31"</code>)</li>
-            <li>Verify all rows have the same <code>updated_at</code> value</li>
-            <li>Run an incremental update with a larger date range (e.g., <code>max_date: "2017-02-28"</code>)</li>
-            <li>Verify that new rows have a different (newer) <code>updated_at</code> value than existing rows</li>
+            <li>Ensure your <code>int_customer_daily_features_inc</code> has a <code>created_at</code> column with <code>CURRENT_TIMESTAMP</code></li>
+            <li>Create a unit test that mocks <code>this</code> with existing data (max date: 2017-01-31)</li>
+            <li>Mock the input tables (<code>int_customer_landing</code>, <code>stg_orders</code>, <code>stg_order_payments</code>) with new data</li>
+            <li>Verify that the output only contains rows within the lookback window (dates >= max_date - 14 days)</li>
         </ol>
 
         <button class="solution-button" onclick="toggleSolution('solution5b')">Show Solution</button>
         <div id="solution5b" class="solution">
-            <h4>Step 1: Update the incremental model to include updated_at</h4>
-            <p><strong>Edit models/intermediate/int_customer_daily_features_inc.sql</strong> - add the updated_at column:</p>
+            <h4>Step 1: Ensure the model has created_at column</h4>
+            <p>Your <code>int_customer_daily_features_inc.sql</code> should include:</p>
             <pre>
-{{ config(
-    materialized='incremental',
-    unique_key=['customer_id', 'date'],
-    incremental_strategy='merge'
-) }}
-
-{% set max_date = var('max_date', '2018-10-31') %}
-
-WITH customer_dates AS (
-    SELECT 
-        c.customer_id,
-        c.landing_date,
-        d.date_day as date
-    FROM {{ ref('int_customer_landing') }} c
-    CROSS JOIN (
-        {{ dbt_utils.date_spine(
-            datepart="day",
-            start_date="'2016-01-01'::date",
-            end_date="'2018-12-31'::date"
-        ) }}
-    ) d
-    WHERE d.date_day >= c.landing_date
-      AND d.date_day <= '{{ max_date }}'::date
-      
-    {% if is_incremental() %}
-      AND d.date_day >= (
-        SELECT MAX(date) - INTERVAL '14 days'
-        FROM {{ this }}
-      )
-    {% endif %}
-),
-
-daily_payments AS (
-    SELECT
-        o.customer_id,
-        DATE(o.order_purchase_timestamp) as order_date,
-        SUM(p.payment_value) as daily_payment_value,
-        COUNT(DISTINCT o.order_id) as daily_order_count
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-    
-    {% if is_incremental() %}
-      AND DATE(o.order_purchase_timestamp) >= (
-        SELECT MAX(date) - INTERVAL '14 days'
-        FROM {{ this }}
-      )
-    {% endif %}
-    
-    GROUP BY 1, 2
-)
-
 SELECT
-    cd.customer_id,
-    cd.date,
-    cd.landing_date,
-    
-    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
-        PARTITION BY cd.customer_id 
-        ORDER BY cd.date 
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) as total_payment_value,
-    
-    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
-        PARTITION BY cd.customer_id 
-        ORDER BY cd.date 
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) as total_orders,
-    
-    cd.date - cd.landing_date as days_since_landing,
-    
-    -- Track when this row was processed
-    CURRENT_TIMESTAMP as updated_at
-    
-FROM customer_dates cd
-LEFT JOIN daily_payments dp
-    ON cd.customer_id = dp.customer_id
-    AND cd.date = dp.order_date</pre>
+    ...
+    CURRENT_TIMESTAMP as created_at
+FROM ...</pre>
 
-            <h4>Step 2: Run full refresh with limited data</h4>
+            <h4>Step 2: Create the unit test file</h4>
+            <p><strong>Create: tests/unit/test_incremental_behavior.yml</strong></p>
             <pre>
-# Full refresh - all rows get the same updated_at
-dbt run --select int_customer_daily_features_inc --full-refresh \
-  --vars '{max_date: "2017-01-31"}'
+version: 2
 
-# Verify all rows have the same updated_at
-SELECT 
-    updated_at,
-    COUNT(*) as row_count,
-    MIN(date) as min_date,
-    MAX(date) as max_date
-FROM int_customer_daily_features_inc
-GROUP BY updated_at
-ORDER BY updated_at;</pre>
+unit_tests:
+  - name: test_incremental_only_processes_new_dates
+    description: >
+      Verify incremental model respects the 14-day lookback window.
+      When this table has data up to 2017-01-31, only dates >= 2017-01-17 should be processed.
+    model: int_customer_daily_features_inc
+    
+    overrides:
+      vars:
+        max_date: "2017-02-15"
+    
+    given:
+      # Mock the existing table data (this makes is_incremental() return true)
+      - input: this
+        rows:
+          - {customer_id: "cust_001", date: "2017-01-30", landing_date: "2017-01-01", 
+             total_payment_value: 100.00, total_orders: 1, days_since_landing: 29,
+             created_at: "2024-01-01 10:00:00"}
+          - {customer_id: "cust_001", date: "2017-01-31", landing_date: "2017-01-01", 
+             total_payment_value: 100.00, total_orders: 1, days_since_landing: 30,
+             created_at: "2024-01-01 10:00:00"}
+      
+      # Mock the customer landing data
+      - input: ref('int_customer_landing')
+        rows:
+          - {customer_id: "cust_001", landing_date: "2017-01-01"}
+      
+      # Mock orders - new order in February
+      - input: ref('stg_orders')
+        rows:
+          - {order_id: "ord_001", customer_id: "cust_001", order_status: "delivered", 
+             order_purchase_timestamp: "2017-02-10 10:00:00"}
+      
+      # Mock payments
+      - input: ref('stg_order_payments')
+        rows:
+          - {order_id: "ord_001", payment_value: 75.00}
+    
+    expect:
+      rows:
+        # Output should only contain NEW rows from the lookback window
+        # Max date in this is 2017-01-31, so lookback starts at 2017-01-17
+        # The new order on 2017-02-10 should generate this row
+        - {customer_id: "cust_001", date: "2017-02-10", landing_date: "2017-01-01",
+           total_payment_value: 75.00, total_orders: 1, days_since_landing: 40}
 
-            <h4>Expected Result After Full Refresh:</h4>
+
+  - name: test_incremental_excludes_old_dates
+    description: >
+      Verify that dates before the lookback window are NOT processed.
+      This proves the incremental filter is working.
+    model: int_customer_daily_features_inc
+    
+    overrides:
+      vars:
+        max_date: "2017-02-15"
+    
+    given:
+      - input: this
+        rows:
+          # Existing data up to 2017-01-31
+          - {customer_id: "cust_002", date: "2017-01-31", landing_date: "2017-01-15", 
+             total_payment_value: 200.00, total_orders: 2, days_since_landing: 16,
+             created_at: "2024-01-01 10:00:00"}
+      
+      - input: ref('int_customer_landing')
+        rows:
+          - {customer_id: "cust_002", landing_date: "2017-01-15"}
+      
+      # Order from January 10 - BEFORE lookback window (2017-01-17)
+      # This should NOT appear in output!
+      - input: ref('stg_orders')
+        rows:
+          - {order_id: "ord_old", customer_id: "cust_002", order_status: "delivered", 
+             order_purchase_timestamp: "2017-01-10 10:00:00"}
+      
+      - input: ref('stg_order_payments')
+        rows:
+          - {order_id: "ord_old", payment_value: 50.00}
+    
+    expect:
+      rows: []  # No rows should be output - the order date is before lookback!</pre>
+
+            <h4>Step 3: Run the unit tests</h4>
             <pre>
-      updated_at          | row_count | min_date   | max_date
---------------------------+-----------+------------+------------
- 2025-01-15 10:30:00.123  |    15420  | 2016-09-04 | 2017-01-31
-(1 row)  -- All rows have the SAME timestamp!</pre>
+# Run all unit tests
+dbt test --select test_type:unit
 
-            <h4>Step 3: Run incremental update with more data</h4>
-            <pre>
-# Wait a few seconds, then run incremental (no --full-refresh)
-dbt run --select int_customer_daily_features_inc \
-  --vars '{max_date: "2017-02-28"}'
+# Run specific incremental behavior tests
+dbt test --select test_incremental_only_processes_new_dates
+dbt test --select test_incremental_excludes_old_dates
 
-# Check updated_at distribution - should see TWO different timestamps
-SELECT 
-    updated_at,
-    COUNT(*) as row_count,
-    MIN(date) as min_date,
-    MAX(date) as max_date
-FROM int_customer_daily_features_inc
-GROUP BY updated_at
-ORDER BY updated_at;</pre>
-
-            <h4>Expected Result After Incremental Run:</h4>
-            <pre>
-      updated_at          | row_count | min_date   | max_date
---------------------------+-----------+------------+------------
- 2025-01-15 10:30:00.123  |    15420  | 2016-09-04 | 2017-01-31  -- Original rows
- 2025-01-15 10:35:00.456  |     8234  | 2017-01-18 | 2017-02-28  -- NEW rows!
-(2 rows)  -- Two different timestamps prove incremental behavior!</pre>
+# Verbose output for debugging
+dbt test --select test_type:unit -v</pre>
 
             <div class="info-box">
-                <h3>✨ What This Proves:</h3>
+                <h3>✨ What These Tests Prove:</h3>
                 <ul>
-                    <li><strong>Different timestamps:</strong> Rows were processed at different times</li>
-                    <li><strong>Date overlap:</strong> The lookback window (14 days) caused some dates to be reprocessed (2017-01-18 to 2017-01-31)</li>
-                    <li><strong>New data added:</strong> February dates only appear in the second batch</li>
-                    <li><strong>Incremental is working:</strong> Not all data was reprocessed!</li>
+                    <li><strong>test_incremental_only_processes_new_dates:</strong> When <code>this</code> has data, only rows within the lookback window are processed</li>
+                    <li><strong>test_incremental_excludes_old_dates:</strong> Orders before the lookback window are completely filtered out</li>
+                    <li><strong>The <code>created_at</code> column:</strong> Existing rows in <code>this</code> have old timestamps, new output rows get current timestamp</li>
+                    <li><strong>No manual intervention:</strong> Tests are automated and repeatable!</li>
+                </ul>
+            </div>
+            
+            <div class="warning-box">
+                <h4>⚠️ Important Notes:</h4>
+                <ul>
+                    <li>The <code>created_at</code> column is excluded from <code>expect</code> because <code>CURRENT_TIMESTAMP</code> is dynamic</li>
+                    <li>Mocking <code>this</code> automatically makes <code>is_incremental()</code> return <code>true</code></li>
+                    <li>The unit test output is what the model's SELECT produces, NOT the merged table result</li>
+                    <li>For complex models with <code>date_spine</code>, you may need to simplify the test inputs</li>
                 </ul>
             </div>
 
-        </div>
-
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Automated Incremental Verification</h3>
-            <p>Create a custom test that automatically verifies incremental behavior:</p>
-            <ul>
-                <li>Check that after an incremental run, not all rows have the same <code>updated_at</code></li>
-                <li>Verify the lookback window is being applied correctly</li>
-                <li>Alert if incremental mode accidentally does a full table scan</li>
-            </ul>
         </div>
     </div>
 

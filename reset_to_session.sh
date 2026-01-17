@@ -47,8 +47,9 @@ fi
 #
 #   3 - Session 3: Testing & Production (includes Session 1 & 2 + below)
 #       - Seeds (brazil_cities.csv for geographic data)
+#       - Mart (mart_customer_features_enriched - joins customers with seed)
 #       - Macros (classify_tier for reusable tier logic)
-#       - Customer tiers model (int_customer_tiers using classify_tier macro)
+#       - Seller model refactored to use classify_tier macro
 #
 # NOTES:
 #   - Source data (olist_* tables) is preserved
@@ -950,52 +951,6 @@ SELECT
 FROM seller_metrics
 EOF
 
-        # Session 3: Customer Tiers Model
-        cat > models/intermediate/int_customer_tiers.sql << 'EOF'
-{{ config(materialized='table') }}
-
-WITH customer_metrics AS (
-    SELECT
-        o.customer_id,
-        COUNT(DISTINCT o.order_id) as total_orders,
-        SUM(p.payment_value) as total_revenue,
-        AVG(p.payment_value) as avg_order_value,
-        MIN(DATE(o.order_purchase_timestamp)) as first_order_date,
-        MAX(DATE(o.order_purchase_timestamp)) as last_order_date
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-    GROUP BY o.customer_id
-)
-
-SELECT
-    customer_id,
-
-    -- Use the SAME classify_tier macro for customer tiers!
-    {{ classify_tier('total_orders', 'volume') }} as tier_by_volume,
-    {{ classify_tier('total_revenue', 'revenue') }} as tier_by_revenue,
-
-    total_orders,
-    total_revenue,
-    avg_order_value,
-    first_order_date,
-    last_order_date,
-
-    -- Composite tier: take the better of the two
-    CASE
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'platinum'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'platinum' THEN 'platinum'
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'gold'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'gold' THEN 'gold'
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'silver'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'silver' THEN 'silver'
-        ELSE 'bronze'
-    END as composite_tier
-
-FROM customer_metrics
-EOF
-
         cat > snapshots/snapshots.yml << 'EOF'
 version: 2
 
@@ -1186,6 +1141,27 @@ Campinas,SP,Southeast,medium,primary,1
 São Luís,MA,Northeast,medium,tertiary,0
 EOF
 
+        # Session 3: Mart Model (joins customers with geographic seed)
+        mkdir -p models/mart
+        cat > models/mart/mart_customer_features_enriched.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    c.customer_id,
+    c.customer_city as city,
+    c.customer_state as state,
+    
+    -- Geographic enrichment from brazil_cities seed
+    COALESCE(bc.region, 'Unknown') as region,
+    COALESCE(bc.population_tier, 'unknown') as city_tier,
+    COALESCE(bc.economic_zone, 'unknown') as economic_zone,
+    COALESCE(bc.logistics_hub, 0) as is_logistics_hub
+
+FROM {{ ref('stg_customers') }} c
+LEFT JOIN {{ ref('brazil_cities') }} bc
+    ON LOWER(TRIM(c.customer_city)) = LOWER(TRIM(bc.city))
+EOF
+
         # Session 3: Tier Classification Macro
         mkdir -p macros
         cat > macros/classify_tier.sql << 'EOF'
@@ -1236,10 +1212,10 @@ EOF
         echo "✅ Session 3 setup complete!"
         echo "Created additional models:"
         echo "  - seeds/brazil_cities.csv"
+        echo "  - mart_customer_features_enriched (joins customers with geographic seed)"
         echo "  - macros/classify_tier.sql"
-        echo "  - int_customer_tiers (using classify_tier macro)"
-        echo "  - int_customer_daily_features_inc (incremental version)"
         echo "  - int_seller_performance (refactored to use classify_tier macro)"
+        echo "  - int_customer_daily_features_inc (incremental version with created_at)"
         echo "  - stg_orders_with_ingestion (ingestion time tracking)"
         echo "  - int_payment_features_ingestion (point-in-time features)"
         echo "Ready for testing challenges!"
@@ -1587,46 +1563,6 @@ LEFT JOIN daily_payments dp
     AND cd.date = dp.order_date
 EOF
 
-        # Session 3: Customer Tiers Model
-        cat > models/intermediate/int_customer_tiers.sql << 'EOF'
-{{ config(materialized='table') }}
-
-WITH customer_metrics AS (
-    SELECT
-        o.customer_id,
-        COUNT(DISTINCT o.order_id) as total_orders,
-        SUM(p.payment_value) as total_revenue,
-        AVG(p.payment_value) as avg_order_value,
-        MIN(DATE(o.order_purchase_timestamp)) as first_order_date,
-        MAX(DATE(o.order_purchase_timestamp)) as last_order_date
-    FROM {{ ref('stg_orders') }} o
-    INNER JOIN {{ ref('stg_order_payments') }} p
-        ON o.order_id = p.order_id
-    WHERE o.order_status NOT IN ('canceled', 'unavailable')
-    GROUP BY o.customer_id
-)
-
-SELECT
-    customer_id,
-    {{ classify_tier('total_orders', 'volume') }} as tier_by_volume,
-    {{ classify_tier('total_revenue', 'revenue') }} as tier_by_revenue,
-    total_orders,
-    total_revenue,
-    avg_order_value,
-    first_order_date,
-    last_order_date,
-    CASE
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'platinum'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'platinum' THEN 'platinum'
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'gold'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'gold' THEN 'gold'
-        WHEN {{ classify_tier('total_orders', 'volume') }} = 'silver'
-          OR {{ classify_tier('total_revenue', 'revenue') }} = 'silver' THEN 'silver'
-        ELSE 'bronze'
-    END as composite_tier
-FROM customer_metrics
-EOF
-
         cat > snapshots/snapshots.yml << 'EOF'
 version: 2
 
@@ -1730,6 +1666,27 @@ Campinas,SP,Southeast,medium,primary,1
 São Luís,MA,Northeast,medium,tertiary,0
 EOF
 
+        # Mart Model (joins customers with geographic seed)
+        mkdir -p models/mart
+        cat > models/mart/mart_customer_features_enriched.sql << 'EOF'
+{{ config(materialized='table') }}
+
+SELECT
+    c.customer_id,
+    c.customer_city as city,
+    c.customer_state as state,
+    
+    -- Geographic enrichment from brazil_cities seed
+    COALESCE(bc.region, 'Unknown') as region,
+    COALESCE(bc.population_tier, 'unknown') as city_tier,
+    COALESCE(bc.economic_zone, 'unknown') as economic_zone,
+    COALESCE(bc.logistics_hub, 0) as is_logistics_hub
+
+FROM {{ ref('stg_customers') }} c
+LEFT JOIN {{ ref('brazil_cities') }} bc
+    ON LOWER(TRIM(c.customer_city)) = LOWER(TRIM(bc.city))
+EOF
+
         # Tier Classification Macro
         mkdir -p macros
         cat > macros/classify_tier.sql << 'EOF'
@@ -1777,10 +1734,11 @@ EOF
         echo "✅ FINAL STATE setup complete!"
         echo "All solutions included:"
         echo "  - All Session 1, 2, and 3 models"
-        echo "  - int_customer_daily_features_inc with updated_at column"
+        echo "  - int_customer_daily_features_inc with created_at column"
         echo "  - stg_orders_with_ingestion (ingestion time tracking)"
         echo "  - int_payment_features_ingestion (point-in-time features)"
         echo "  - seeds/brazil_cities.csv"
+        echo "  - mart_customer_features_enriched (joins customers with geographic seed)"
         echo "  - macros/classify_tier.sql"
         echo "  - Snapshots with 4 iterations"
         echo "This represents the completed workshop state!"
