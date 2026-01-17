@@ -320,12 +320,17 @@
         function toggleSolution(id) {
             var solution = document.getElementById(id);
             var button = event.target;
+            // Store original text on first click
+            if (!button.dataset.originalText) {
+                button.dataset.originalText = button.textContent;
+            }
             if (solution.style.display === 'none' || solution.style.display === '') {
                 solution.style.display = 'block';
-                button.textContent = 'Hide Solution';
+                // Replace "Show" with "Hide" in the original text
+                button.textContent = button.dataset.originalText.replace('Show', 'Hide');
             } else {
                 solution.style.display = 'none';
-                button.textContent = 'Show Solution';
+                button.textContent = button.dataset.originalText;
             }
         }
     </script>
@@ -525,48 +530,59 @@ S001      | gold        | 12000         | 2018-01-15     | NULL</pre>
 
     <!-- ==================== CHALLENGES SECTION ==================== -->
 
-    <!-- Challenge 1: Variables -->
+    <!-- Challenge 1: Variables - ENHANCED -->
     <div id="challenge-1" class="challenge-box">
         <h2>🎯 Challenge 1: Master Variable Hierarchy</h2>
-        <p>Learn how dbt resolves variables from different sources and test the hierarchy in action.</p>
-        
-        <p><strong>Related concepts:</strong> <a href="#variables" class="concept-link">Variables in dbt</a></p>
-        
-        <h3>Requirements:</h3>
-        <ol>
-            <li>Set up variables at project level</li>
-            <li>Override with command line variables</li>
-            <li>Update the daily features model to use variables</li>
-            <li>Test variable resolution priority</li>
-        </ol>
-        
+        <p>In Session 1, you created <code>int_customer_daily_features</code> with hardcoded <code>lookback_days = [3, 7, 14]</code>. Now make it configurable using dbt's variable hierarchy!</p>
+
+        <div class="warning-box">
+            <h3>🎯 Your Goal</h3>
+            <p>Modify <code>int_customer_daily_features.sql</code> to use the <code>lookback_days</code> variable, then test dbt's variable resolution hierarchy:</p>
+            <ol>
+                <li><strong>Model Default:</strong> Set a default value in the model itself using <code>var('lookback_days', [7, 14])</code></li>
+                <li><strong>Project Level:</strong> Override it in <code>dbt_project.yml</code> with <code>[3, 7, 14]</code></li>
+                <li><strong>Command Line:</strong> Override at runtime with <code>--vars '{lookback_days: [1, 5, 10]}'</code></li>
+            </ol>
+            <p><strong>Test it:</strong> Run the model 3 times and watch the logs to see which value gets used!</p>
+        </div>
+
+        <h3>Step-by-Step Instructions:</h3>
+
+        <h4>Step 1: Update Your Model to Use Variables</h4>
+        <p>Modify <code>models/intermediate/int_customer_daily_features.sql</code> to use variables instead of hardcoded values.</p>
+
+        <h4>Step 2: Add Project-Level Variables</h4>
+        <p>Add variables to <code>dbt_project.yml</code> (these will override the model defaults).</p>
+
+        <h4>Step 3: Test the Hierarchy</h4>
+        <p>Run the model three different ways to see variable resolution in action:</p>
+        <ul>
+            <li><strong>Test 1:</strong> Comment out project vars, run normally → Uses model default</li>
+            <li><strong>Test 2:</strong> Uncomment project vars, run normally → Uses project-level vars</li>
+            <li><strong>Test 3:</strong> Run with <code>--vars</code> flag → Command line wins!</li>
+        </ul>
+
+        <div class="info-box">
+            <h4>💡 Hint: See Variable Values in Logs</h4>
+            <p>Use dbt's <code>log()</code> function to print variable values during compilation:</p>
+            <pre>{{ log("🔍 Using lookback_days: " ~ lookback_days, info=True) }}</pre>
+            <p>The <code>info=True</code> parameter ensures the message appears in the console output during <code>dbt run</code>.</p>
+        </div>
+
         <button class="solution-button" onclick="toggleSolution('solution1')">Show Solution</button>
         <div id="solution1" class="solution">
-            <h4>Step 1: Add to dbt_project.yml (Project Level)</h4>
-            <pre>
-# Add this to your dbt_project.yml
-vars:
-  lookback_days: [3, 7, 14]
-  max_date: '2018-10-31'
-  churn_threshold_days: 90
-  min_order_value: 10</pre>
-            
-            <h4>Step 2: Update models/intermediate/int_customer_daily_features.sql</h4>
+            <h4>Step 1: Update models/intermediate/int_customer_daily_features.sql</h4>
             <pre>
 {{ config(materialized='table') }}
 
--- Use variables with hierarchy demonstration
-{% set lookback_days = var('lookback_days') %}
-{% set max_date = var('max_date') %}
-{% set min_order_value = var('min_order_value', 0) %}
+-- Set variable with DEFAULT VALUE (lowest priority)
+{% set lookback_days = var('lookback_days', [7, 14]) %}
 
--- Log variable values to see what's being used
-{{ log("Using lookback_days: " ~ lookback_days, info=True) }}
-{{ log("Max feature date: " ~ max_date, info=True) }}
-{{ log("Min order value: " ~ min_order_value, info=True) }}
+-- Log to console so you can see which value is being used
+{{ log("🔍 Using lookback_days: " ~ lookback_days, info=True) }}
 
 WITH customer_dates AS (
-    SELECT 
+    SELECT
         c.customer_id,
         c.landing_date,
         d.date_day as date
@@ -579,7 +595,7 @@ WITH customer_dates AS (
         ) }}
     ) d
     WHERE d.date_day >= c.landing_date
-      AND d.date_day <= '{{ max_date }}'::date
+      AND d.date_day <= '2018-10-31'::date
 ),
 
 daily_payments AS (
@@ -592,7 +608,6 @@ daily_payments AS (
     INNER JOIN {{ ref('stg_order_payments') }} p
         ON o.order_id = p.order_id
     WHERE o.order_status NOT IN ('canceled', 'unavailable')
-      AND p.payment_value >= {{ min_order_value }}  -- Using variable
     GROUP BY 1, 2
 ),
 
@@ -601,15 +616,23 @@ features AS (
         cd.customer_id,
         cd.date,
         cd.landing_date,
-        
-        -- Cumulative payment value
+
+        -- Cumulative metrics
         SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) as total_payment_value,
-        
-        -- Dynamic rolling window features
+
+        cd.date - cd.landing_date as days_since_landing,
+
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) as total_orders,
+
+        -- Dynamic rolling window features using the variable!
         {% for days in lookback_days %}
         SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
             PARTITION BY cd.customer_id 
@@ -618,15 +641,12 @@ features AS (
         ) as payment_{{ days }}d,
         
         SUM(COALESCE(dp.daily_order_count, 0)) OVER (
-            PARTITION BY cd.customer_id 
-            ORDER BY cd.date 
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
             ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
-        ) as orders_{{ days }}d,
+        ) as orders_{{ days }}d{% if not loop.last %},{% endif %}
         {% endfor %}
-        
-        -- Days metrics
-        cd.date - cd.landing_date as days_since_landing
-        
+
     FROM customer_dates cd
     LEFT JOIN daily_payments dp
         ON cd.customer_id = dp.customer_id
@@ -634,27 +654,47 @@ features AS (
 )
 
 SELECT * FROM features</pre>
-            
-            <h4>Step 3: Test Variable Hierarchy</h4>
+
+            <h4>Step 2: Add to dbt_project.yml (Project Level Variables)</h4>
             <pre>
-# Test 1: Use project-level variables (from dbt_project.yml)
+# Add this to your dbt_project.yml file
+vars:
+  lookback_days: [3, 7, 14]</pre>
+
+            <h4>Step 3: Test the Variable Hierarchy</h4>
+            <pre>
+# Test 1: Comment out the vars in dbt_project.yml, then run
 dbt run --select int_customer_daily_features
-# Check logs - should show [3, 7, 14] for lookback_days
+# 📊 Check logs - should show: "Using lookback_days: [7, 14]" (model default)
 
-# Test 2: Override with command line (highest priority)
+# Test 2: Uncomment the vars in dbt_project.yml, then run
+dbt run --select int_customer_daily_features
+# 📊 Check logs - should show: "Using lookback_days: [3, 7, 14]" (project level)
+
+# Test 3: Override with command line (highest priority!)
 dbt run --select int_customer_daily_features --vars '{lookback_days: [1, 5, 10]}'
-# Check logs - should show [1, 5, 10] for lookback_days
+# 📊 Check logs - should show: "Using lookback_days: [1, 5, 10]" (command line wins!)
 
-# Test 3: Partial override
-dbt run --select int_customer_daily_features --vars '{max_date: "2018-06-30"}'
-# lookback_days should come from project, max_date from command line
-
-# Test 4: See compiled SQL differences
+# Test 4: Verify compiled SQL changes
 dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
-# Check target/compiled/.../int_customer_daily_features.sql</pre>
-            
-            <p><strong>Variable Resolution Test:</strong></p>
-            <p>Watch the dbt logs during runs to see which variable values are actually being used!</p>
+# Check target/compiled/.../int_customer_daily_features.sql
+# You should see only payment_30d and orders_30d columns!</pre>
+
+            <div class="info-box">
+                <h4>🎓 What You Learned</h4>
+                <p><strong>Variable Resolution Hierarchy (highest to lowest priority):</strong></p>
+                <ol>
+                    <li><code>--vars</code> flag (command line) ← <strong>WINS</strong></li>
+                    <li><code>dbt_project.yml</code> vars section (project level)</li>
+                    <li><code>var('name', default)</code> second parameter (model default)</li>
+                </ol>
+                <p>This hierarchy allows you to:</p>
+                <ul>
+                    <li>Set sensible defaults in models</li>
+                    <li>Configure project-wide settings in dbt_project.yml</li>
+                    <li>Override for specific runs or testing with --vars</li>
+                </ul>
+            </div>
         </div>
         
         <div class="optional-challenge">
@@ -679,213 +719,185 @@ dbt compile --select int_customer_daily_features --vars '{lookback_days: [30]}'
         </div>
     </div>
 
-    <!-- Challenge 2: SCD Type 2 -->
+    <!-- Challenge 2: SCD Type 2 - NEW SELLER TIER VERSION -->
     <div id="challenge-2" class="challenge-box">
         <h2>🎯 Challenge 2: Track Seller Performance with Snapshots</h2>
-        <p>Build a complete SCD Type 2 solution to track how sellers grow from bronze → silver → gold → platinum tier over time.</p>
+        <p><strong>We've pre-built the staging and intermediate models for you!</strong> Your job is to create the snapshot and watch sellers progress through tiers over time.</p>
 
         <p><strong>Related concepts:</strong> <a href="#scd-type2" class="concept-link">SCD Type 2</a>, <a href="#variables" class="concept-link">Variables in dbt</a></p>
 
         <div class="info-box">
             <h3>📊 Business Context</h3>
-            <p>In this e-commerce platform, sellers start small and grow over time. We want to track their progression through performance tiers to:</p>
+            <p>In this e-commerce platform, sellers start small and grow over time. We want to track their progression through performance tiers:</p>
             <ul>
-                <li>Analyze which sellers are improving vs declining</li>
-                <li>Understand how long sellers stay in each tier</li>
-                <li>Calculate tier-specific metrics (avg time to gold, churn rate by tier)</li>
-                <li>Enable point-in-time reporting ("Who were our gold sellers in Q1 2017?")</li>
+                <li><strong>Bronze:</strong> 1-19 orders (new/small sellers)</li>
+                <li><strong>Silver:</strong> 20-99 orders (growing sellers)</li>
+                <li><strong>Gold:</strong> 100-499 orders (high performers)</li>
+                <li><strong>Platinum:</strong> 500+ orders (top performers)</li>
             </ul>
+            <p>As sellers get more orders, they move up tiers. Snapshots let us track this history!</p>
         </div>
-
-        <h3>🎯 Your Mission:</h3>
-        <p>You'll build 3 models to track seller tier changes. Here are the detailed requirements for each:</p>
-
-        <h4>Part 1: Staging Model - <code>stg_order_items_snapshot.sql</code></h4>
-        <p><strong>Purpose:</strong> Clean order items data by joining with orders table and filtering out invalid data.</p>
-        <p><strong>Data Cleaning Requirements:</strong></p>
-        <ul>
-            <li>Join <code>olist_order_items</code> with <code>olist_orders</code> to get order timestamps</li>
-            <li>Filter out NULL <code>order_id</code> and <code>seller_id</code></li>
-            <li>Filter out orders with <code>price &lt;= 0</code> (invalid/test data)</li>
-            <li>Filter out canceled/unavailable orders: <code>order_status NOT IN ('canceled', 'unavailable')</code></li>
-            <li>Filter out orders with NULL <code>order_purchase_timestamp</code></li>
-            <li>Convert <code>price</code> and <code>freight_value</code> to DECIMAL(10,2)</li>
-            <li>Include: order_id, order_item_id, product_id, seller_id, price, freight_value, order_purchase_timestamp, order_date, order_status</li>
-        </ul>
-
-        <h4>Part 2: Intermediate Model - <code>int_seller_performance.sql</code></h4>
-        <p><strong>Purpose:</strong> Calculate seller metrics and assign tier based on order volume.</p>
 
         <div class="warning-box">
-            <h4>🔑 IMPORTANT: Using Variables for Time-Based Testing</h4>
-            <p>To test how sellers progress through tiers over time, you need to use a variable called <code>snapshot_date</code> that controls "how much data to include."</p>
-            <p><strong>Why?</strong> In the real world, you'd run snapshots daily. For testing, we simulate this by filtering data up to different dates:</p>
+            <h3>🔑 Understanding dbt Snapshot Timestamps</h3>
+            <p><strong>IMPORTANT:</strong> The columns <code>dbt_valid_from</code> and <code>dbt_valid_to</code> are NOT business dates from your data. They are the <strong>actual timestamps when you ran the <code>dbt snapshot</code> command!</strong></p>
+
+            <p><strong>Example:</strong></p>
             <ul>
-                <li>Run 1: Include orders up to 2017-01-01 → See mostly bronze sellers (new sellers)</li>
-                <li>Run 2: Include orders up to 2017-06-30 → Some bronze → silver upgrades!</li>
-                <li>Run 3: Include orders up to 2018-01-31 → Gold tier sellers appear!</li>
-                <li>Run 4: Include orders up to 2018-10-17 → Platinum tier unlocked!</li>
+                <li>You run <code>dbt snapshot</code> on January 15, 2025 at 10:00 AM → <code>dbt_valid_from = 2025-01-15 10:00:00</code></li>
+                <li>Seller changes tier, you run snapshot again on January 20, 2025 at 2:30 PM → Old row gets <code>dbt_valid_to = 2025-01-20 14:30:00</code>, new row gets <code>dbt_valid_from = 2025-01-20 14:30:00</code></li>
             </ul>
-            <p><strong>How to implement:</strong> At the top of your model, use <code>{% set snapshot_date = var('snapshot_date', '2018-10-17') %}</code>, then filter with <code>WHERE order_date &lt;= '{{ snapshot_date }}'::date</code></p>
+
+            <p>This means:</p>
+            <ul>
+                <li><code>dbt_valid_from</code> = When you first captured this state</li>
+                <li><code>dbt_valid_to</code> = When this state changed (NULL = current state)</li>
+                <li>These are <strong>snapshot execution times</strong>, not business event times!</li>
+            </ul>
         </div>
 
-        <p><strong>Tier Classification Rules (based on order count):</strong></p>
-        <ul>
-            <li><strong>Platinum:</strong> 500+ orders (top 1% performers)</li>
-            <li><strong>Gold:</strong> 100-499 orders (high performers)</li>
-            <li><strong>Silver:</strong> 20-99 orders (growing sellers)</li>
-            <li><strong>Bronze:</strong> 1-19 orders (new/small sellers)</li>
-        </ul>
+        <h3>📦 Pre-Built Models (Already Created for You)</h3>
 
-        <p><strong>Metrics to Calculate per Seller:</strong></p>
-        <ul>
-            <li><code>seller_id</code> - Primary key</li>
-            <li><code>seller_tier</code> - Classification based on order count (use CASE statement)</li>
-            <li><code>total_orders</code> - COUNT(DISTINCT order_id)</li>
-            <li><code>unique_products</code> - COUNT(DISTINCT product_id)</li>
-            <li><code>total_revenue</code> - SUM(price)</li>
-            <li><code>avg_order_value</code> - AVG(price)</li>
-            <li><code>first_sale_date</code> - MIN(order_date)</li>
-            <li><code>last_sale_date</code> - MAX(order_date)</li>
-            <li><code>updated_at</code> - CURRENT_TIMESTAMP (required for snapshot tracking)</li>
-        </ul>
+        <h4>1. Staging Model: <code>stg_order_items_snapshot.sql</code> ✅</h4>
+        <p>This model joins order items with orders, filters out invalid data, and gives us clean seller transaction data. <strong>Already created in your project!</strong></p>
 
-        <h4>Part 3: Snapshot - <code>snap_seller_tier.sql</code></h4>
-        <p><strong>Purpose:</strong> Automatically track when sellers change tiers using dbt's snapshot functionality.</p>
-        <p><strong>Snapshot Configuration:</strong></p>
-        <ul>
-            <li><code>target_schema</code>: 'olist_data' (keep snapshots in the regular schema)</li>
-            <li><code>strategy</code>: 'timestamp' (detect changes based on timestamp column)</li>
-            <li><code>unique_key</code>: 'seller_id' (one row per seller)</li>
-            <li><code>updated_at</code>: 'updated_at' (column to monitor for changes)</li>
-        </ul>
+        <h4>2. Intermediate Model: <code>int_seller_performance.sql</code> ✅</h4>
+        <p>This model calculates seller metrics and assigns tiers. <strong>Already created in your project!</strong></p>
+        <p>It uses a variable <code>snapshot_date</code> to control which orders to include, allowing us to "rewind time" and see how sellers performed at different dates.</p>
 
-        <h4>Part 4: Testing Workflow</h4>
-        <p>Follow these steps to see sellers progress through tiers over time:</p>
-        <ol>
-            <li>Build the staging model once</li>
-            <li>Build performance model with <code>snapshot_date = "2017-01-01"</code>, then take snapshot</li>
-            <li>Rebuild performance with <code>snapshot_date = "2017-06-30"</code>, then snapshot again → Detect changes!</li>
-            <li>Continue with 2018-01-31 and 2018-10-17 to see full progression</li>
-        </ol>
+        <h3>🎯 Your Task: Create the Snapshot and Watch Sellers Progress!</h3>
 
-        <button class="solution-button" onclick="toggleSolution('solution2')">Show Solution</button>
+        <h4>Step-by-Step Testing Workflow</h4>
+        <p><strong>Follow these steps to create the snapshot and see sellers progress through tiers over time.</strong></p>
+
+        <h5>Step 0: Create the snapshot configuration</h5>
+        <p>First, create the snapshot file <code>snapshots/snapshots.yml</code> with the configuration below.</p>
+        <p>📚 <strong>Reference:</strong> <a href="https://docs.getdbt.com/docs/build/snapshots#add-a-snapshot-to-your-project" target="_blank">dbt Snapshots Documentation</a> (we covered this in the presentation)</p>
+
+        <button class="solution-button" onclick="toggleSolution('solution2')">Show Snapshot Configuration</button>
         <div id="solution2" class="solution">
-            <h4>Part 1: models/staging/stg_order_items_snapshot.sql</h4>
+            <h4>Create: snapshots/snapshots.yml</h4>
             <pre>
-{{ config(materialized='table') }}
+version: 2
 
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at</pre>
+
+            <div class="info-box">
+                <h4>📝 Understanding the Snapshot Configuration</h4>
+                <ul>
+                    <li><code>name</code>: Name of the snapshot table that will be created</li>
+                    <li><code>relation</code>: The model or source to snapshot - here we use <code>ref('int_seller_performance')</code> to snapshot the model</li>
+                    <li><code>config</code>: Configuration block with snapshot settings</li>
+                    <li><code>unique_key</code>: Column that uniquely identifies each row (seller_id - one row per seller)</li>
+                    <li><code>strategy: timestamp</code>: Detect changes when the <code>updated_at</code> column changes</li>
+                    <li><code>updated_at</code>: Column to monitor - when this changes, dbt knows the seller's data changed</li>
+                </ul>
+                <p><strong>Note:</strong> dbt will automatically add <code>dbt_valid_from</code>, <code>dbt_valid_to</code>, and <code>dbt_updated_at</code> columns to track the snapshot history.</p>
+            </div>
+        </div>
+
+        <h5>Step 1: Build and verify the staging model</h5>
+        <pre>dbt run --select stg_order_items_snapshot</pre>
+        <p>✅ This creates clean order item data with ~112K rows. Verify it succeeded before continuing.</p>
+
+        <h5>Step 2: Build int_seller_performance for early 2017</h5>
+            <pre>dbt run --select int_seller_performance --vars '{snapshot_date: "2017-01-01"}'</pre>
+            <p><strong>🔧 What's happening with the variable?</strong></p>
+            <ul>
+                <li>The <code>snapshot_date</code> variable controls which orders to include</li>
+                <li>With <code>"2017-01-01"</code>, we only count orders from 2016 and early 2017</li>
+                <li>This "rewinds time" - sellers look like they did in early 2017 (mostly bronze tier)</li>
+                <li>📊 Check logs - you should see: <code>"📅 Analyzing seller performance up to: 2017-01-01"</code></li>
+            </ul>
+
+            <h5>Step 3: Take first snapshot</h5>
+            <pre>dbt snapshot --select snap_seller_tier</pre>
+            <p><strong>📸 What just happened?</strong></p>
+            <ul>
+                <li>dbt created a snapshot table with ~134 sellers (early sellers only)</li>
+                <li><code>dbt_valid_from</code> is set to RIGHT NOW (when you ran this command) - not 2017!</li>
+                <li>All rows have <code>dbt_valid_to = NULL</code> (current state)</li>
+            </ul>
+
+            <h5>Step 4: Rebuild int_seller_performance with more data</h5>
+            <pre>dbt run --select int_seller_performance --vars '{snapshot_date: "2017-06-30"}'</pre>
+            <p><strong>🔧 What changed?</strong></p>
+            <ul>
+                <li>Now we're including 6 more months of orders (through June 2017)</li>
+                <li>Sellers who had 5 orders in January might have 25 now → upgraded from bronze to silver!</li>
+                <li>📊 Check logs: <code>"📅 Analyzing seller performance up to: 2017-06-30"</code></li>
+            </ul>
+
+            <h5>Step 5: Take second snapshot to detect changes</h5>
+            <pre>dbt snapshot --select snap_seller_tier</pre>
+            <p><strong>📸 Detecting tier changes!</strong></p>
+            <ul>
+                <li>dbt compares the new data with the previous snapshot</li>
+                <li>For sellers whose tier changed: old row gets <code>dbt_valid_to = NOW()</code>, new row created with <code>dbt_valid_from = NOW()</code></li>
+                <li>New sellers appear for the first time with <code>dbt_valid_from = NOW()</code></li>
+                <li>You should see ~997 sellers now (863 new sellers + tier changes)</li>
+            </ul>
+
+            <div class="info-box">
+                <h4>🔍 Example: Watch a Specific Seller Progress Through Tiers</h4>
+                <p>Let's verify tier changes are being tracked! Run this query after Step 5:</p>
+                <pre>
 SELECT
-    oi.order_id,
-    oi.order_item_id,
-    oi.product_id,
-    oi.seller_id,
-    oi.price::DECIMAL(10,2) as price,
-    oi.freight_value::DECIMAL(10,2) as freight_value,
-    o.order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    DATE(o.order_purchase_timestamp) as order_date,
-    o.order_status
-FROM {{ source('olist_data', 'olist_order_items') }} oi
-INNER JOIN {{ source('olist_data', 'olist_orders') }} o
-    ON oi.order_id = o.order_id
-WHERE oi.order_id IS NOT NULL
-  AND oi.seller_id IS NOT NULL
-  AND oi.price > 0
-  AND o.order_status NOT IN ('canceled', 'unavailable')
-  AND o.order_purchase_timestamp IS NOT NULL</pre>
-
-            <h4>Part 2: models/intermediate/int_seller_performance.sql</h4>
-            <pre>
-{{ config(materialized='table') }}
-
--- Use variable to control analysis date for testing
-{% set snapshot_date = var('snapshot_date', '2018-10-17') %}
-
-WITH seller_metrics AS (
-    SELECT
-        seller_id,
-        COUNT(DISTINCT order_id) as total_orders,
-        COUNT(DISTINCT product_id) as unique_products,
-        SUM(price) as total_revenue,
-        AVG(price) as avg_order_value,
-        MIN(order_date) as first_sale_date,
-        MAX(order_date) as last_sale_date,
-
-        -- Calculate tier based on order volume
-        CASE
-            WHEN COUNT(DISTINCT order_id) >= 500 THEN 'platinum'
-            WHEN COUNT(DISTINCT order_id) >= 100 THEN 'gold'
-            WHEN COUNT(DISTINCT order_id) >= 20 THEN 'silver'
-            ELSE 'bronze'
-        END as seller_tier,
-
-        -- Track when this calculation was made
-        CURRENT_TIMESTAMP as updated_at
-
-    FROM {{ ref('stg_order_items_snapshot') }}
-    WHERE order_date <= '{{ snapshot_date }}'::date
-    GROUP BY seller_id
-)
-
-SELECT
-    seller_id,
     seller_tier,
     total_orders,
-    unique_products,
-    total_revenue,
-    avg_order_value,
-    first_sale_date,
-    last_sale_date,
-    updated_at
-FROM seller_metrics</pre>
+    dbt_valid_from,
+    dbt_valid_to
+FROM olist_data.snap_seller_tier
+WHERE seller_id = '4a3ca9315b744ce9f8e9374361493884'
+ORDER BY dbt_valid_from;</pre>
+                <p><strong>You should see progression like:</strong></p>
+                <ul>
+                    <li><strong>Row 1:</strong> gold tier with ~389 orders, <code>dbt_valid_to</code> has a timestamp (expired when more data came in)</li>
+                    <li><strong>Row 2:</strong> platinum tier with ~1214 orders, <code>dbt_valid_to</code> has a timestamp</li>
+                    <li><strong>Row 3 (after Step 6):</strong> platinum tier with ~1804 orders, <code>dbt_valid_to = NULL</code> (current state)</li>
+                </ul>
+                <p>🎉 This seller went from gold → platinum as they got more orders! The <code>dbt_valid_from</code> and <code>dbt_valid_to</code> timestamps show WHEN YOU RAN the snapshot commands.</p>
+            </div>
 
-            <h4>Part 3: snapshots/snap_seller_tier.sql</h4>
+            <h5>Step 6: Continue with later dates</h5>
             <pre>
-{% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
-
-    SELECT * FROM {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}</pre>
-
-            <h4>Part 4: Testing Commands</h4>
-            <pre>
-# Step 1: Build staging model
-dbt run --select stg_order_items_snapshot
-
-# Step 2: Initial snapshot (Jan 2017)
-dbt run --select int_seller_performance --vars '{snapshot_date: "2017-01-01"}'
-dbt snapshot --select snap_seller_tier
-
-# Step 3: Second snapshot (Jun 2017) - Detect tier changes!
-dbt run --select int_seller_performance --vars '{snapshot_date: "2017-06-30"}'
-dbt snapshot --select snap_seller_tier
-
-# Step 4: Third snapshot (Jan 2018)
+# Early 2018 - gold sellers appear!
 dbt run --select int_seller_performance --vars '{snapshot_date: "2018-01-31"}'
 dbt snapshot --select snap_seller_tier
 
-# Step 5: Final snapshot (Oct 2018)
+# Late 2018 - platinum tier unlocked!
 dbt run --select int_seller_performance --vars '{snapshot_date: "2018-10-17"}'
 dbt snapshot --select snap_seller_tier</pre>
+            <p>After the final snapshot, you'll have ~3,053 sellers with full tier progression history!</p>
+
+            <div class="warning-box">
+                <h4>🎓 What Just Happened?</h4>
+                <p>Each time you ran <code>dbt snapshot</code>:</p>
+                <ul>
+                    <li>dbt checked the <code>updated_at</code> column in <code>int_seller_performance</code></li>
+                    <li>If a seller's tier changed → created a NEW row with <code>dbt_valid_from = NOW()</code></li>
+                    <li>Updated the old row's <code>dbt_valid_to = NOW()</code> to mark when it expired</li>
+                    <li>Rows with <code>dbt_valid_to = NULL</code> are the current state</li>
+                </ul>
+            </div>
 
             <h4>Verification Queries</h4>
 
-            <p><strong>1. View seller tier distribution:</strong></p>
+            <p><strong>1. View current seller tier distribution:</strong></p>
             <pre>
 SELECT seller_tier, COUNT(*) as seller_count
 FROM olist_data.snap_seller_tier
 WHERE dbt_valid_to IS NULL  -- Current state only
-GROUP BY seller_tier;</pre>
+GROUP BY seller_tier
+ORDER BY seller_tier;</pre>
 
-            <p><strong>2. Find sellers who changed tiers (SCD Type 2 proof!):</strong></p>
+            <p><strong>2. Find sellers who changed tiers (SCD Type 2 in action!):</strong></p>
             <pre>
 SELECT seller_id, COUNT(*) as tier_changes
 FROM olist_data.snap_seller_tier
@@ -894,31 +906,32 @@ HAVING COUNT(*) > 1
 ORDER BY tier_changes DESC
 LIMIT 10;</pre>
 
-            <p><strong>3. See a specific seller's progression over time:</strong></p>
+            <p><strong>3. See a specific seller's full tier progression:</strong></p>
             <pre>
+-- First, find a seller who changed tiers:
+SELECT seller_id, COUNT(*) as changes
+FROM olist_data.snap_seller_tier
+GROUP BY seller_id
+HAVING COUNT(*) > 1
+LIMIT 1;
+
+-- Then view their progression:
 SELECT
     seller_tier,
     total_orders,
-    dbt_valid_from,
-    dbt_valid_to
+    dbt_valid_from,  -- When you captured this state
+    dbt_valid_to     -- When this state changed (NULL = current)
 FROM olist_data.snap_seller_tier
-WHERE seller_id = 'YOUR_SELLER_ID_HERE'
+WHERE seller_id = 'PASTE_SELLER_ID_FROM_ABOVE'
 ORDER BY dbt_valid_from;</pre>
 
-            <p><strong>Expected Results:</strong> ~2,000 sellers with tier changes, showing bronze → silver → gold → platinum progressions!</p>
-        </div>
-
-        <div class="optional-challenge">
-            <h3>🌟 Optional Challenge: Seller Cohort Analysis</h3>
-            <p>Use the snapshot to analyze seller lifecycle:</p>
-            <ul>
-                <li>Calculate average time to reach each tier (e.g., "90 days to silver")</li>
-                <li>Identify sellers who were downgraded (gold → silver)</li>
-                <li>Create a seller churn analysis (stopped getting orders)</li>
-                <li>Build a "tier transition matrix" showing bronze→silver→gold flow</li>
-                <li>Calculate revenue by tier at different points in time</li>
-            </ul>
-        </div>
+        <p><strong>Expected Results:</strong></p>
+        <ul>
+            <li>~3,053 sellers total (current state)</li>
+            <li>~997 sellers with tier changes</li>
+            <li>You'll see progressions like: bronze → silver → gold → platinum</li>
+            <li><code>dbt_valid_from</code> timestamps match when YOU ran the snapshot commands</li>
+        </ul>
     </div>
 
     <!-- Challenge 3: Incremental Models -->
@@ -931,9 +944,52 @@ ORDER BY dbt_valid_from;</pre>
         <h3>Requirements:</h3>
         <ol>
             <li>Create a new incremental model <code>int_customer_daily_features_inc.sql</code> (similar to <code>int_customer_daily_features.sql</code> but with incremental logic)</li>
+            <li>Add a <code>created_at</code> column (<code>CURRENT_TIMESTAMP</code>) to track when each row was inserted - this makes it easy to verify that incremental runs only process new data</li>
             <li>Follow the proper testing workflow</li>
-            <li>Verify incremental behavior</li>
+            <li>Verify incremental behavior by checking <code>created_at</code> timestamps</li>
         </ol>
+
+        <div class="info-box">
+            <strong>💡 Reminder:</strong> The <code>{{ this }}</code> keyword in dbt refers to the current model's table in the database. When used inside an incremental model, it lets you query the existing table to find the maximum date or other metadata to determine what new data to process.
+        </div>
+
+        <div class="info-box">
+            <strong>💡 Verifying Incremental Logic:</strong> Use <code>target/run/</code> to see the actual SQL that ran against your database:
+            <ul>
+                <li><strong>Full refresh:</strong> Check <code>target/run/.../int_customer_daily_features_inc.sql</code> → Should see <code>CREATE TABLE</code></li>
+                <li><strong>Incremental run:</strong> Same file → Should see <code>MERGE</code> statement with incremental filters</li>
+            </ul>
+        </div>
+
+        <h4>Proper Testing Workflow (Step by Step):</h4>
+        <pre>
+# STEP 1: Full refresh with limited data (January 2017)
+dbt run --select int_customer_daily_features_inc --full-refresh \
+  --vars '{max_date: "2017-01-31"}'
+
+# Check what was built - all rows have the same created_at timestamp:
+# SELECT created_at, MIN(date), MAX(date), COUNT(*)
+# FROM int_customer_daily_features_inc
+# GROUP BY created_at;
+
+# STEP 2: Check the compiled SQL (CREATE TABLE)
+cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
+# Should see CREATE TABLE statement, no is_incremental() logic
+
+# STEP 3: Now test incremental behavior (February 2017)
+dbt run --select int_customer_daily_features_inc \
+  --vars '{max_date: "2017-02-28"}'
+
+# STEP 4: Verify incremental behavior with created_at!
+# You should see TWO different timestamps - proving only new rows were added:
+# SELECT created_at, MIN(date), MAX(date), COUNT(*)
+# FROM int_customer_daily_features_inc
+# GROUP BY created_at
+# ORDER BY created_at;
+
+# STEP 5: Check the incremental SQL (MERGE statement)
+cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
+# Should see MERGE statement with incremental logic</pre>
         
         <button class="solution-button" onclick="toggleSolution('solution3')">Show Solution</button>
         <div id="solution3" class="solution">
@@ -1013,45 +1069,32 @@ SELECT
     ) as total_orders,
     
     -- Days since landing
-    cd.date - cd.landing_date as days_since_landing
+    cd.date - cd.landing_date as days_since_landing,
+    
+    -- Track when this row was created/updated (KEY for verifying incremental behavior!)
+    CURRENT_TIMESTAMP as created_at
     
 FROM customer_dates cd
 LEFT JOIN daily_payments dp
     ON cd.customer_id = dp.customer_id
     AND cd.date = dp.order_date</pre>
             
-            <h4>Proper Testing Workflow (Step by Step):</h4>
+            <h4>Verify Incremental Behavior with created_at:</h4>
             <pre>
-# STEP 1: Full refresh with limited data (January 2017)
-dbt run --select int_customer_daily_features_inc --full-refresh \
-  --vars '{max_date: "2017-01-31"}'
+-- After running incremental, check that only new rows were added:
+SELECT 
+    created_at,
+    MIN(date) as min_date,
+    MAX(date) as max_date,
+    COUNT(*) as row_count
+FROM int_customer_daily_features_inc
+GROUP BY created_at
+ORDER BY created_at;
 
-# Check what was built:
-# SELECT MIN(date), MAX(date), COUNT(*)
-# FROM int_customer_daily_features_inc;
-
-# STEP 2: Check the compiled SQL (CREATE TABLE)
-cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
-# Should see CREATE TABLE statement, no is_incremental() logic
-
-# STEP 3: Full refresh with more data (February 2017)
-dbt run --select int_customer_daily_features_inc --full-refresh \
-  --vars '{max_date: "2017-02-28"}'
-
-# Verify more data was added
-
-# STEP 4: Now test incremental behavior (March 2017)
-dbt run --select int_customer_daily_features_inc \
-  --vars '{max_date: "2017-03-31"}'
-
-# STEP 5: Check the incremental SQL (MERGE statement)
-cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.sql
-# Should see MERGE statement with incremental logic
-
-# TIP: Add a created_at column (CURRENT_TIMESTAMP) to your model
-# This explicitly shows which rows were added in each run:
-# SELECT created_at, COUNT(*) FROM int_customer_daily_features_inc GROUP BY 1;
-# Old rows will have earlier timestamps, new rows will have the current timestamp</pre>
+-- You should see multiple timestamps:
+-- - First timestamp: rows from full refresh (January data)
+-- - Second timestamp: rows from incremental run (February data only!)
+-- This PROVES the incremental logic is working correctly.</pre>
             
             <div class="info-box">
                 <h3>🔍 What to Look for in Compiled SQL:</h3>
@@ -1072,14 +1115,20 @@ cat target/run/dbt_workshop/models/intermediate/int_customer_daily_features_inc.
             
             <p><strong>Validate the Magic Happened:</strong></p>
             <pre>
--- After incremental run, check the lookback logic worked:
- SELECT 
-    date, 
-    COUNT(*)
- FROM int_customer_daily_features_inc
- WHERE date >= '2017-02-15'  -- Should see lookback data
- GROUP BY date
- ORDER BY date;
+-- The created_at column makes it crystal clear which rows are new:
+SELECT 
+    created_at,
+    COUNT(*) as rows_added,
+    MIN(date) as earliest_date,
+    MAX(date) as latest_date
+FROM int_customer_daily_features_inc
+GROUP BY created_at
+ORDER BY created_at;
+
+-- Example output after full refresh + one incremental run:
+-- created_at              | rows_added | earliest_date | latest_date
+-- 2025-01-16 10:00:00     | 50000      | 2016-09-04    | 2017-01-31  (full refresh)
+-- 2025-01-16 10:05:00     | 15000      | 2017-02-01    | 2017-02-28  (incremental!)
 </pre>
         </div>
         
@@ -1208,133 +1257,189 @@ dbt run --select int_customer_daily_features_inc --full-refresh \
         </div>
     </div>
 
-    <!-- Challenge 4: Late Arriving Events -->
+    <!-- Challenge 4: Late Arriving Events - Ingestion Time Tracking -->
     <div id="challenge-4" class="challenge-box">
         <h2>🎯 Challenge 4: Handle Late-Arriving Data with Ingestion Time Tracking</h2>
-        <p>Implement ingestion time tracking for late-arriving data discussed in today's presentation.</p>
-        
+        <p>Build point-in-time correct features that account for late-arriving payment data.</p>
+
         <p><strong>Related concepts:</strong> <a href="#late-data" class="concept-link">Late-Arriving Data</a>, <a href="#incremental-models" class="concept-link">Incremental Models</a></p>
+
+        <button class="solution-button" onclick="toggleSolution('late_data_recap')">Show Presentation Recap</button>
+        <div id="late_data_recap" class="solution">
+            <h3>📅 The Late Data Problem (from Session 2 Presentation)</h3>
+            <p><strong>The Scenario:</strong> Some order payments arrive 1-30 days after the original order.</p>
+            <p><strong>The Risk:</strong> If we only check transaction dates, we'll use data that hadn't arrived yet!</p>
+            <p><strong>The Result:</strong> Training/serving skew - your model sees future data it wouldn't have in production.</p>
+
+            <p><strong>Solution: Ingestion Time Tracking</strong></p>
+            <ul>
+                <li><strong>Transaction Time:</strong> When the order actually happened (<code>order_purchase_timestamp</code>)</li>
+                <li><strong>Ingestion Time:</strong> When the data entered our system (<code>order_approved_at</code>)</li>
+                <li><strong>Feature Date:</strong> The date we're calculating features for</li>
+                <li><strong>Rule:</strong> Only count transactions where <code>ingestion_date <= feature_date</code></li>
+            </ul>
+        </div>
         
         <h3>Requirements:</h3>
         <ol>
-            <li>Create the provided staging model with ingestion time tracking (see below)</li>
-            <li>Build point-in-time correct features using the staging model</li>
-            <li>Test with simulated late data</li>
-            <li>Verify point-in-time accuracy</li>
+            <li>Use the provided staging model <code>stg_late_orders</code> (already built for you)</li>
+            <li>Build an intermediate model <code>int_customer_payment_features</code> that calculates daily payment features</li>
+            <li>Use ingestion time logic to ensure point-in-time correctness</li>
+            <li>Validate with the example customer provided</li>
         </ol>
-        
+
         <div class="info-box">
-            <h4>📦 Provided Staging Model</h4>
-            <p>Create this file and run it first - we've provided it so you can focus on the feature engineering:</p>
-            <p><strong>models/staging/stg_orders_with_ingestion.sql</strong></p>
-            <pre>
-{{ config(
-    materialized='incremental',
-    unique_key='order_id',
-    incremental_strategy='merge'
-) }}
-
-SELECT
-    order_id,
-    customer_id,
-    order_status,
-    order_purchase_timestamp::timestamp as order_purchase_timestamp,
-    DATE(order_purchase_timestamp::timestamp) as order_date,
-    
-    -- INGESTION TIME STRATEGY: Track when we received this data
-    CURRENT_TIMESTAMP as ingestion_time,
-    
-    -- Simulate late arrival: some orders arrive 1-3 days after order_date
-    CASE 
-        WHEN order_id IN (
-            SELECT order_id FROM {{ source('olist_data', 'olist_orders') }}
-            WHERE MOD(ABS(HASHTEXT(order_id)), 10) = 0  -- 10% of orders
-        ) THEN order_purchase_timestamp::timestamp + INTERVAL '2 days'
-        ELSE order_purchase_timestamp::timestamp + INTERVAL '1 hour'
-    END as simulated_arrival_time
-
-FROM {{ source('olist_data', 'olist_orders') }}
-
-WHERE order_status != 'unavailable'
-  AND order_purchase_timestamp IS NOT NULL
-  
-  {% if is_incremental() %}
-    -- Only process recently arrived data
-    AND order_purchase_timestamp::timestamp > (
-        SELECT MAX(order_purchase_timestamp) - INTERVAL '1 day'
-        FROM {{ this }}
-    )
-  {% endif %}</pre>
-            
-            <p><strong>Run this model first:</strong></p>
-            <pre>dbt run --select stg_orders_with_ingestion --full-refresh</pre>
+            <h4>📦 Provided: Staging Model (Already Built)</h4>
+            <p>We've created <code>stg_late_orders.sql</code> for you with late-arriving payment data:</p>
+            <ul>
+                <li><strong>transaction_date:</strong> When the order was purchased</li>
+                <li><strong>ingestion_date:</strong> When the order was approved/entered our system</li>
+                <li><strong>payment_value:</strong> How much the order cost</li>
+                <li><strong>arrival_delay:</strong> How late the data arrived (for analysis)</li>
+            </ul>
+            <p>About ~23% of orders arrived more than 7 days late!</p>
         </div>
+
+        <h4>Your Task: Build Point-in-Time Correct Features</h4>
+        <p>Create <code>models/intermediate/int_customer_payment_features.sql</code> that:</p>
+        <ol>
+            <li>Generates feature dates for each customer (Jan 1 - Mar 31, 2018)</li>
+            <li>For each feature date, calculates:
+                <ul>
+                    <li><code>total_payment_value</code> - sum of payments</li>
+                    <li><code>total_orders</code> - count of orders</li>
+                </ul>
+            </li>
+            <li><strong>Critical logic:</strong> Only include transactions where:
+                <ul>
+                    <li>Transaction happened by feature date: <code>transaction_date <= feature_date</code></li>
+                    <li>Data had arrived by feature date: <code>ingestion_date <= feature_date</code></li>
+                </ul>
+            </li>
+        </ol>
         
         <button class="solution-button" onclick="toggleSolution('solution4')">Show Solution</button>
         <div id="solution4" class="solution">
-            <h4>Build Point-in-Time Correct Features</h4>
-            <p><strong>models/intermediate/int_payment_features_ingestion.sql</strong></p>
+            <h4>models/intermediate/int_customer_payment_features.sql</h4>
             <pre>
 {{ config(materialized='table') }}
 
--- Point-in-time correct features using ingestion time
-WITH prediction_dates AS (
+-- Calculate daily payment features for customers using ingestion time tracking
+-- This ensures point-in-time correctness: only count payments that had arrived by the feature date
+
+WITH feature_dates AS (
+    -- Generate all dates we want to calculate features for
     {{ dbt_utils.date_spine(
         datepart="day",
-        start_date="'2017-01-01'::date",
-        end_date="'2017-03-31'::date"
+        start_date="'2018-01-01'::date",
+        end_date="'2018-03-31'::date"
     ) }}
+),
+
+all_customers AS (
+    -- Get all unique customers
+    SELECT DISTINCT customer_id
+    FROM {{ ref('stg_late_orders') }}
+),
+
+customer_feature_dates AS (
+    -- For each customer, generate all feature dates
+    SELECT
+        ac.customer_id,
+        fd.date_day as feature_date
+    FROM all_customers ac
+    CROSS JOIN feature_dates fd
+),
+
+point_in_time_payments AS (
+    -- For each feature date, only include payments that:
+    -- 1. Happened on or before the feature date (transaction_date <= feature_date)
+    -- 2. Had arrived in our system by the feature date (ingestion_date <= feature_date)
+    SELECT
+        cfd.customer_id,
+        cfd.feature_date,
+        SUM(lo.payment_value) as total_payment_value,
+        COUNT(DISTINCT lo.order_id) as total_orders
+    FROM customer_feature_dates cfd
+    LEFT JOIN {{ ref('stg_late_orders') }} lo
+        ON cfd.customer_id = lo.customer_id
+        -- Transaction must have happened by feature date
+        AND lo.transaction_date <= cfd.feature_date
+        -- Data must have arrived in our system by feature date (KEY LOGIC!)
+        AND lo.ingestion_date <= cfd.feature_date
+    GROUP BY 1, 2
 )
 
-SELECT 
-    pd.date_day as date,
-    o.customer_id,
-    COUNT(DISTINCT o.order_id) as orders_count,
-    SUM(p.payment_value) as total_payments,
-    'ingestion_time_tracking' as method
-FROM prediction_dates pd
-CROSS JOIN {{ ref('stg_orders_with_ingestion') }} o
-INNER JOIN {{ ref('stg_order_payments') }} p
-    ON o.order_id = p.order_id
-WHERE o.order_status NOT IN ('canceled', 'unavailable')
-  -- CRITICAL: Only use data we "knew" at prediction time
-  AND o.simulated_arrival_time <= pd.date_day
-  AND DATE(o.order_purchase_timestamp) <= pd.date_day
-GROUP BY 1, 2</pre>
-            
-            <h4>Test the Ingestion Time Tracking</h4>
-            <pre>
-# Build point-in-time correct features
-dbt run --select int_payment_features_ingestion
-
--- Verify point-in-time correctness in your database:
- SELECT 
-    date,
+SELECT
     customer_id,
-    orders_count,
-    total_payments
- FROM int_payment_features_ingestion
- ORDER BY date, customer_id
- LIMIT 100;</pre>
-            
+    feature_date,
+    COALESCE(total_payment_value, 0) as total_payment_value,
+    COALESCE(total_orders, 0) as total_orders
+FROM point_in_time_payments
+ORDER BY customer_id, feature_date</pre>
+
+            <h4>✅ Validate Point-in-Time Correctness</h4>
+            <p>Test with customer <code>b48ad91d707041578581aefae1f7c385</code> who has a late-arriving payment:</p>
+            <ul>
+                <li><strong>Transaction date:</strong> February 25, 2018</li>
+                <li><strong>Ingestion date:</strong> March 26, 2018 (29 days late!)</li>
+                <li><strong>Payment amount:</strong> $232.71</li>
+            </ul>
+
+            <p><strong>Test on feature date March 1, 2018:</strong></p>
+            <pre>
+-- Compare wrong vs correct approach
+WITH example_customer AS (
+    SELECT 'b48ad91d707041578581aefae1f7c385' as cust_id
+),
+
+-- WRONG: Using only transaction date
+wrong_method AS (
+    SELECT
+        SUM(payment_value) as total_payments
+    FROM olist_data.stg_late_orders
+    WHERE customer_id = (SELECT cust_id FROM example_customer)
+      AND transaction_date <= DATE('2018-03-01')
+),
+
+-- CORRECT: Using ingestion date
+correct_method AS (
+    SELECT
+        total_payment_value as total_payments
+    FROM olist_data.int_customer_payment_features
+    WHERE customer_id = (SELECT cust_id FROM example_customer)
+      AND feature_date = DATE('2018-03-01')
+)
+
+SELECT
+    'Transaction Date Only (WRONG)' as method,
+    ROUND(wm.total_payments, 2) as total_payments,
+    'Counts $232.71 even though data had not arrived yet!' as note
+FROM wrong_method wm
+UNION ALL
+SELECT
+    'Ingestion Time Tracking (CORRECT)' as method,
+    ROUND(cm.total_payments, 2) as total_payments,
+    'Data had not arrived by Mar 1, so correctly shows $0' as note
+FROM correct_method cm;</pre>
+
+            <p><strong>Expected output:</strong></p>
+            <pre>
+              method               | total_payments |                           note
+-----------------------------------+----------------+----------------------------------------------------------
+ Transaction Date Only (WRONG)     |         232.71 | Counts $232.71 even though data had not arrived yet!
+ Ingestion Time Tracking (CORRECT) |           0.00 | Data had not arrived by Mar 1, so correctly shows $0
+</pre>
+
             <div class="info-box">
-                <h3>📊 Key Benefits of Ingestion Time Tracking:</h3>
-                
+                <h4>🎯 Why This Matters</h4>
+                <p><strong>The Scenario:</strong> You're building a model to predict customer churn on March 1, 2018.</p>
                 <ul>
-                    <li><strong>Perfect Point-in-Time Accuracy:</strong> Features reflect exactly what data was available at prediction time</li>
-                    <li><strong>Eliminates Training/Serving Skew:</strong> Training and inference use the same data availability logic</li>
-                    <li><strong>Regulatory Compliance:</strong> Audit trail of when data entered the system</li>
-                    <li><strong>Late Data Visibility:</strong> Can measure and monitor data arrival patterns</li>
-                    <li><strong>Best for:</strong> Financial systems, high-stakes ML models, mission-critical applications</li>
+                    <li><strong>Wrong approach:</strong> Uses the $232.71 payment in training (total = $232.71)</li>
+                    <li><strong>Correct approach:</strong> Doesn't use it because data hadn't arrived (total = $0)</li>
                 </ul>
-                
-                <p><strong>Important Considerations:</strong></p>
-                <ul>
-                    <li>Requires schema changes to add ingestion time columns</li>
-                    <li>More complex to implement than simple lookback windows</li>
-                    <li>May require additional storage for tracking metadata</li>
-                    <li>Worth the complexity when accuracy is critical</li>
-                </ul>
+                <p><strong>The Problem:</strong> In production on March 1, you wouldn't have that payment data! Your model would see $0, but you trained it on $232.71. This is <strong>training/serving skew</strong>.</p>
+                <p><strong>The Fix:</strong> Ingestion time tracking ensures your training data matches what you'd actually have in production.</p>
             </div>
         </div>
         

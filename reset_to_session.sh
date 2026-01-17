@@ -426,8 +426,13 @@ EOF
         cat > models/intermediate/int_customer_daily_features.sql << 'EOF'
 {{ config(materialized='table') }}
 
+-- Set variable with DEFAULT VALUE (lowest priority)
+{% set lookback_days = var('lookback_days', [7, 14]) %}
+
+-- Log to console so you can see which value is being used
+{{ log("🔍 Using lookback_days: " ~ lookback_days, info=True) }}
+
 WITH customer_dates AS (
-    -- Generate daily rows for each customer from landing to today
     SELECT
         c.customer_id,
         c.landing_date,
@@ -441,11 +446,10 @@ WITH customer_dates AS (
         ) }}
     ) d
     WHERE d.date_day >= c.landing_date
-      AND d.date_day <= '2018-10-31'::date  -- Latest date in dataset
+      AND d.date_day <= '2018-10-31'::date
 ),
 
 daily_payments AS (
-    -- Calculate daily payment totals per customer
     SELECT
         o.customer_id,
         DATE(o.order_purchase_timestamp) as order_date,
@@ -456,34 +460,51 @@ daily_payments AS (
         ON o.order_id = p.order_id
     WHERE o.order_status NOT IN ('canceled', 'unavailable')
     GROUP BY 1, 2
+),
+
+features AS (
+    SELECT
+        cd.customer_id,
+        cd.date,
+        cd.landing_date,
+
+        -- Cumulative metrics
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) as total_payment_value,
+
+        cd.date - cd.landing_date as days_since_landing,
+
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) as total_orders,
+
+        -- Dynamic rolling window features using the variable!
+        {% for days in lookback_days %}
+        SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
+            PARTITION BY cd.customer_id 
+            ORDER BY cd.date 
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+        ) as payment_{{ days }}d,
+        
+        SUM(COALESCE(dp.daily_order_count, 0)) OVER (
+            PARTITION BY cd.customer_id
+            ORDER BY cd.date
+            ROWS BETWEEN {{ days - 1 }} PRECEDING AND CURRENT ROW
+        ) as orders_{{ days }}d{% if not loop.last %},{% endif %}
+        {% endfor %}
+
+    FROM customer_dates cd
+    LEFT JOIN daily_payments dp
+        ON cd.customer_id = dp.customer_id
+        AND cd.date = dp.order_date
 )
 
-SELECT
-    cd.customer_id,
-    cd.date,
-    cd.landing_date,
-
-    -- Cumulative payment value up to this date
-    SUM(COALESCE(dp.daily_payment_value, 0)) OVER (
-        PARTITION BY cd.customer_id
-        ORDER BY cd.date
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) as total_payment_value,
-
-    -- Days since landing
-    cd.date - cd.landing_date as days_since_landing,
-
-    -- Cumulative order count
-    SUM(COALESCE(dp.daily_order_count, 0)) OVER (
-        PARTITION BY cd.customer_id
-        ORDER BY cd.date
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) as total_orders
-
-FROM customer_dates cd
-LEFT JOIN daily_payments dp
-    ON cd.customer_id = dp.customer_id
-    AND cd.date = dp.order_date
+SELECT * FROM features
 EOF
 
         # Add Session 2 specific models
@@ -515,6 +536,9 @@ EOF
 
 -- Use variable to control analysis date for testing
 {% set snapshot_date = var('snapshot_date', '2018-10-17') %}
+
+-- Log to console so you can see which date is being used
+{{ log("📅 Analyzing seller performance up to: " ~ snapshot_date, info=True) }}
 
 WITH seller_metrics AS (
     SELECT
@@ -555,20 +579,16 @@ SELECT
 FROM seller_metrics
 EOF
 
-        cat > snapshots/snap_seller_tier.sql << 'EOF'
-{% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
+        cat > snapshots/snapshots.yml << 'EOF'
+version: 2
 
-    SELECT * FROM {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at
 EOF
 
         # Challenge 4: Late-arriving data models
@@ -976,20 +996,16 @@ SELECT
 FROM customer_metrics
 EOF
 
-        cat > snapshots/snap_seller_tier.sql << 'EOF'
-{% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
+        cat > snapshots/snapshots.yml << 'EOF'
+version: 2
 
-    SELECT * FROM {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at
 EOF
 
         # Challenge 4: Late-arriving data models (carried forward from Session 2)
@@ -1138,7 +1154,10 @@ SELECT
     ) as total_orders,
     
     -- Days since landing
-    cd.date - cd.landing_date as days_since_landing
+    cd.date - cd.landing_date as days_since_landing,
+    
+    -- Track when this row was created (for verifying incremental behavior)
+    CURRENT_TIMESTAMP as created_at
     
 FROM customer_dates cd
 LEFT JOIN daily_payments dp
@@ -1559,8 +1578,8 @@ SELECT
     
     cd.date - cd.landing_date as days_since_landing,
     
-    -- Track when this row was processed (for verifying incremental behavior)
-    CURRENT_TIMESTAMP as updated_at
+    -- Track when this row was created (for verifying incremental behavior)
+    CURRENT_TIMESTAMP as created_at
     
 FROM customer_dates cd
 LEFT JOIN daily_payments dp
@@ -1608,20 +1627,16 @@ SELECT
 FROM customer_metrics
 EOF
 
-        cat > snapshots/snap_seller_tier.sql << 'EOF'
-{% snapshot snap_seller_tier %}
-    {{
-        config(
-          target_schema='olist_data',
-          strategy='timestamp',
-          unique_key='seller_id',
-          updated_at='updated_at',
-        )
-    }}
+        cat > snapshots/snapshots.yml << 'EOF'
+version: 2
 
-    SELECT * FROM {{ ref('int_seller_performance') }}
-
-{% endsnapshot %}
+snapshots:
+  - name: snap_seller_tier
+    relation: ref('int_seller_performance')
+    config:
+      unique_key: seller_id
+      strategy: timestamp
+      updated_at: updated_at
 EOF
 
         # Challenge 4: Late-arriving data models

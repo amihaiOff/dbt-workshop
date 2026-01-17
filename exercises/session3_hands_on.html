@@ -316,6 +316,38 @@
                 max-height: 70vh;
             }
         }
+        
+        /* Collapsible info box */
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .collapsible-header h3 {
+            margin: 0;
+        }
+        
+        .collapse-arrow {
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 12px;
+            transition: transform 0.3s ease;
+        }
+        
+        .collapse-arrow.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .collapsible-content {
+            display: none;
+            margin-top: 15px;
+        }
+        
+        .collapsible-content.show {
+            display: block;
+        }
     </style>
     <script>
         function toggleTOC() {
@@ -348,6 +380,13 @@
                 solution.style.display = 'none';
                 button.textContent = 'Show Solution';
             }
+        }
+        
+        function toggleCollapsible(id) {
+            var content = document.getElementById(id);
+            var arrow = document.getElementById(id + '-arrow');
+            content.classList.toggle('show');
+            arrow.classList.toggle('expanded');
         }
     </script>
 </head>
@@ -403,11 +442,16 @@
     </div>
 
     <div class="info-box">
-        <h3>💡 Need to Catch Up or Reset?</h3>
-        <p>If you're joining this session or want to start fresh with all Session 2 models in place (including snapshots!), you can use the reset script:</p>
-        <pre>./reset_to_session.sh 2</pre>
-        <p>This will reset your project to the end of Session 2 with all foundation models, variables, snapshots, and advanced patterns ready to go.</p>
-        <p><strong>⚠️ Use Wisely:</strong> The reset script will overwrite any custom work or bonus challenges you've completed. Make sure to save any extra code you want to keep before running it!</p>
+        <div class="collapsible-header" onclick="toggleCollapsible('catch-up-content')">
+            <span id="catch-up-content-arrow" class="collapse-arrow">▶</span>
+            <h3>💡 Need to Catch Up or Reset?</h3>
+        </div>
+        <div id="catch-up-content" class="collapsible-content">
+            <p>If you're joining this session or want to start fresh with all Session 2 models in place (including snapshots!), you can use the reset script:</p>
+            <pre>./reset_to_session.sh 2</pre>
+            <p>This will reset your project to the end of Session 2 with all foundation models, variables, snapshots, and advanced patterns ready to go.</p>
+            <p><strong>⚠️ Use Wisely:</strong> The reset script will overwrite any custom work or bonus challenges you've completed. Make sure to save any extra code you want to keep before running it!</p>
+        </div>
     </div>
 
     <!-- ==================== CONCEPTS SECTION ==================== -->
@@ -493,6 +537,66 @@ FROM payments</pre>
             <li><code>accepted_values</code> - Validates against a list</li>
             <li><code>relationships</code> - Checks foreign key integrity</li>
         </ul>
+
+        <div class="collapsible-header" onclick="toggleCollapsible('schema-test-examples')">
+            <span id="schema-test-examples-arrow" class="collapse-arrow">▶</span>
+            <h4>Schema Test Syntax Examples</h4>
+        </div>
+        <div id="schema-test-examples" class="collapsible-content">
+            <p><strong>Primary Key Tests (unique + not_null):</strong></p>
+            <pre>
+columns:
+  - name: user_id
+    tests:
+      - unique
+      - not_null</pre>
+
+            <p><strong>Foreign Key Tests (relationships):</strong></p>
+            <pre>
+columns:
+  - name: user_id
+    tests:
+      - relationships:
+          to: ref('dim_users')
+          field: user_id</pre>
+
+            <p><strong>Business Rules (accepted_values):</strong></p>
+            <pre>
+columns:
+  - name: status
+    tests:
+      - accepted_values:
+          values: ['active', 'pending', 'cancelled', 'completed']</pre>
+
+            <p><strong>Data Range Validation (expression_is_true):</strong></p>
+            <pre>
+columns:
+  - name: created_at
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "created_at >= '2020-01-01'"
+  - name: amount
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: ">= 0"</pre>
+
+            <p><strong>Severity Levels (warn vs error):</strong></p>
+            <pre>
+columns:
+  - name: category
+    tests:
+      - accepted_values:
+          values: ['A', 'B', 'C']
+          config:
+            severity: warn  # Won't fail the build, just warns
+  - name: user_id
+    tests:
+      - relationships:
+          to: ref('dim_users')
+          field: user_id
+          config:
+            severity: error  # Critical - fails the build (default)</pre>
+        </div>
 
         <h4>2. Unit Tests (New in dbt 1.8+)</h4>
         <p>Test model logic with mock inputs and expected outputs - like unit tests in programming.</p>
@@ -1301,6 +1405,35 @@ dbt test --select stg_orders</pre>
                 <li><strong>Then:</strong> Expected output data (what should come out)</li>
             </ul>
             <p>Perfect for testing business logic, edge cases, and transformations.</p>
+
+            <div class="collapsible-header" onclick="toggleCollapsible('unit-test-syntax')">
+                <span id="unit-test-syntax-arrow" class="collapse-arrow">▶</span>
+                <h4>Syntax Example</h4>
+            </div>
+            <div id="unit-test-syntax" class="collapsible-content">
+                <pre>
+unit_tests:
+  - name: test_my_model_logic
+    description: "Test that my model filters and transforms correctly"
+    model: my_model
+    
+    given:
+      - input: ref('upstream_model')  # or source('schema', 'table')
+        rows:
+          - {id: "001", status: "active", amount: 100}
+          - {id: "002", status: "cancelled", amount: 50}
+    
+    expect:
+      rows:
+        - {id: "001", status: "active", amount: 100}  # Only active rows expected</pre>
+                <p><strong>Key points:</strong></p>
+                <ul>
+                    <li>Each row is a YAML dictionary with <code>{column: value, column: value}</code></li>
+                    <li>Use <code>null</code> (lowercase) for NULL values</li>
+                    <li>Strings need quotes, numbers don't</li>
+                    <li>Only include columns relevant to your test</li>
+                </ul>
+            </div>
         </div>
         
         <h3>Requirements:</h3>
@@ -1421,13 +1554,6 @@ dbt test --select test_stg_orders_filtering_and_dates --verbose</pre>
             <li>Run an incremental update with a larger date range (e.g., <code>max_date: "2017-02-28"</code>)</li>
             <li>Verify that new rows have a different (newer) <code>updated_at</code> value than existing rows</li>
         </ol>
-
-        <div class="warning-box">
-            <h4>💡 Hint: The updated_at Column</h4>
-            <p>Add this column to your SELECT statement in <code>int_customer_daily_features_inc.sql</code>:</p>
-            <pre>CURRENT_TIMESTAMP as updated_at</pre>
-            <p>This creates a "watermark" - all rows from the same run will have identical timestamps, making it easy to distinguish between full refresh rows and incrementally added rows.</p>
-        </div>
 
         <button class="solution-button" onclick="toggleSolution('solution5b')">Show Solution</button>
         <div id="solution5b" class="solution">
@@ -1571,21 +1697,6 @@ ORDER BY updated_at;</pre>
                 </ul>
             </div>
 
-            <h4>Step 4: Verify the lookback window is working</h4>
-            <pre>
-# Check that dates near the boundary were updated (lookback window effect)
-SELECT 
-    date,
-    COUNT(*) as customer_count,
-    MIN(updated_at) as oldest_update,
-    MAX(updated_at) as newest_update
-FROM int_customer_daily_features_inc
-WHERE date BETWEEN '2017-01-17' AND '2017-02-05'
-GROUP BY date
-ORDER BY date;
-
-# Dates in the lookback window should have the NEWER timestamp
-# Dates before the lookback should have the OLDER timestamp</pre>
         </div>
 
         <div class="optional-challenge">
