@@ -295,6 +295,38 @@
                 max-height: 70vh;
             }
         }
+        
+        /* Collapsible info box */
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .collapsible-header h3 {
+            margin: 0;
+        }
+        
+        .collapse-arrow {
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 12px;
+            transition: transform 0.3s ease;
+        }
+        
+        .collapse-arrow.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .collapsible-content {
+            display: none;
+            margin-top: 15px;
+        }
+        
+        .collapsible-content.show {
+            display: block;
+        }
     </style>
     <script>
         function toggleTOC() {
@@ -332,6 +364,13 @@
                 solution.style.display = 'none';
                 button.textContent = button.dataset.originalText;
             }
+        }
+        
+        function toggleCollapsible(id) {
+            var content = document.getElementById(id);
+            var arrow = document.getElementById(id + '-arrow');
+            content.classList.toggle('show');
+            arrow.classList.toggle('expanded');
         }
     </script>
 </head>
@@ -386,11 +425,16 @@
     </div>
 
     <div class="info-box">
-        <h3>💡 Need to Catch Up or Reset?</h3>
-        <p>If you're joining this session or want to start fresh with all Session 1 models in place, you can use the reset script:</p>
-        <pre>./reset_to_session.sh 1</pre>
-        <p>This will reset your project to the end of Session 1 with all foundation models ready to go.</p>
-        <p><strong>⚠️ Use Wisely:</strong> The reset script will overwrite any custom work or bonus challenges you've completed. Make sure to save any extra code you want to keep before running it! To preserve your work, copy your files to a different name (e.g., <code>my_int_customer_daily_features.sql</code>) or save them outside the project entirely.</p>
+        <div class="collapsible-header" onclick="toggleCollapsible('catch-up-content')">
+            <span id="catch-up-content-arrow" class="collapse-arrow">▶</span>
+            <h3>💡 Need to Catch Up or Reset?</h3>
+        </div>
+        <div id="catch-up-content" class="collapsible-content">
+            <p>If you're joining this session or want to start fresh with all Session 1 models in place, you can use the reset script:</p>
+            <pre>./reset_to_session.sh 1</pre>
+            <p>This will reset your project to the end of Session 1 with all foundation models ready to go.</p>
+            <p><strong>⚠️ Use Wisely:</strong> The reset script will overwrite any custom work or bonus challenges you've completed. Make sure to save any extra code you want to keep before running it! To preserve your work, copy your files to a different name (e.g., <code>my_int_customer_daily_features.sql</code>) or save them outside the project entirely.</p>
+        </div>
     </div>
 
     <!-- ==================== CONCEPTS SECTION ==================== -->
